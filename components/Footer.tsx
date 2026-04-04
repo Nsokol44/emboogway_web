@@ -2,76 +2,49 @@ import Link from "next/link";
 
 export default function Footer() {
   return (
-    <footer
-      style={{
-        background: "#0a0704",
-        borderTop: "1px solid rgba(201,150,58,0.15)",
-      }}
-    >
+    <footer className="bg-ink border-t border-gold-dim/20">
       <div className="max-w-7xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-12">
-          {/* Brand */}
-          <div>
-            <div className="font-display text-3xl tracking-widest mb-3" style={{ color: "#f0c060" }}>
-              EMBOOGWAY
-            </div>
-            <p className="text-sm leading-relaxed" style={{ color: "#7a6a50" }}>
-              An indie game studio making bold, original games that don&apos;t play it safe.
-              Based in Knoxville, TN.
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-10 mb-12">
+          <div className="col-span-2 md:col-span-1">
+            <div className="font-display text-3xl tracking-widest text-gold-light mb-3">EMBOOGWAY</div>
+            <p className="text-sm leading-relaxed text-gold-dim mb-4">
+              An indie game studio making bold, original games. Knoxville, TN.
             </p>
-            <div className="mt-4 flex gap-4">
+            <div className="flex gap-4">
               {["Twitter/X", "Discord", "Kickstarter"].map((s) => (
-                <a
-                  key={s}
-                  href="#"
-                  className="text-xs font-medium hover-underline"
-                  style={{ color: "#c9963a" }}
-                >
-                  {s}
-                </a>
+                <a key={s} href="#" className="text-xs font-display tracking-widest text-gold hover:text-gold-light transition-colors">{s}</a>
               ))}
             </div>
           </div>
-
-          {/* Games */}
           <div>
-            <div className="font-display text-sm tracking-widest mb-4" style={{ color: "#c9963a" }}>
-              GAMES
-            </div>
+            <div className="font-display text-xs tracking-widest text-gold mb-4">GAMES</div>
             <div className="flex flex-col gap-3">
-              <Link href="/games/the-dm" className="text-sm hover-underline" style={{ color: "#e8dcc8" }}>
-                The DM — 2D Action RPG
-              </Link>
-              <Link href="/games/geostory" className="text-sm hover-underline" style={{ color: "#e8dcc8" }}>
-                Geostory — Historical Strategy
-              </Link>
+              <Link href="/games/the-dm" className="text-sm text-cream-dim hover:text-gold-light transition-colors">The DM</Link>
+              <Link href="/games/geostory" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Geostory</Link>
+              <Link href="/games/the-dm#kickstarter" className="text-sm text-gold hover:text-gold-light transition-colors font-medium">→ Back Us</Link>
             </div>
           </div>
-
-          {/* Studio */}
           <div>
-            <div className="font-display text-sm tracking-widest mb-4" style={{ color: "#c9963a" }}>
-              STUDIO
-            </div>
+            <div className="font-display text-xs tracking-widest text-gold mb-4">EXPLORE</div>
             <div className="flex flex-col gap-3">
-              <Link href="/studio" className="text-sm hover-underline" style={{ color: "#e8dcc8" }}>Studio</Link>
-              <Link href="/about" className="text-sm hover-underline" style={{ color: "#e8dcc8" }}>About</Link>
-              <a href="mailto:hello@emboogway.com" className="text-sm hover-underline" style={{ color: "#e8dcc8" }}>
-                hello@emboogway.com
-              </a>
+              <Link href="/devlog" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Devlog</Link>
+              <Link href="/lore" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Lore</Link>
+              <Link href="/studio" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Studio</Link>
+              <Link href="/about" className="text-sm text-cream-dim hover:text-gold-light transition-colors">About</Link>
+            </div>
+          </div>
+          <div>
+            <div className="font-display text-xs tracking-widest text-gold mb-4">CONTACT</div>
+            <div className="flex flex-col gap-3">
+              <a href="mailto:hello@emboogway.com" className="text-sm text-cream-dim hover:text-gold-light transition-colors">hello@emboogway.com</a>
+              <a href="mailto:press@emboogway.com" className="text-sm text-cream-dim hover:text-gold-light transition-colors">press@emboogway.com</a>
             </div>
           </div>
         </div>
-
-        <div className="divider-gold mb-6" />
-
+        <div className="h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent mb-6" />
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-xs" style={{ color: "#4a3e2e" }}>
-            © {new Date().getFullYear()} Emboogway. All rights reserved.
-          </p>
-          <p className="text-xs font-serif italic" style={{ color: "#4a3e2e" }}>
-            Made with obsession in Knoxville, TN
-          </p>
+          <p className="text-xs text-gold-dim/50">© {new Date().getFullYear()} Emboogway. All rights reserved.</p>
+          <p className="text-xs font-serif italic text-gold-dim/50">Made with obsession in Knoxville, TN</p>
         </div>
       </div>
     </footer>
