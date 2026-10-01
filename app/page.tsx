@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import Particles from "@/components/Particles";
 import ScrollReveal from "@/components/ScrollReveal";
+import WaitlistForm from "@/components/WaitlistForm";
 
 export const metadata: Metadata = {
   title: "Emboogway | Indie Game Studio",
@@ -276,13 +277,9 @@ export default function Home() {
           <div className="font-display text-xs tracking-widest text-gold-dim mb-6">GET INVOLVED</div>
           <h2 className="font-display text-4xl md:text-6xl text-gold-light mb-6">BE PART OF THE STORY</h2>
           <p className="font-serif italic text-lg text-cream-dim/70 max-w-md mx-auto mb-10">
-            Join our newsletter. Be first to know when our Kickstarters go live.
+            Join the waitlist. Be first to know when our Kickstarters go live — and get devlog drops in between.
           </p>
-          <form className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto">
-            <input type="email" placeholder="your@email.com"
-              className="flex-1 px-4 py-3 rounded text-sm bg-bark border border-gold/30 text-cream placeholder-gold-dim/50 outline-none focus:border-gold transition-colors" />
-            <button type="submit" className="btn-shimmer px-6 py-3 rounded text-sm">NOTIFY ME</button>
-          </form>
+          <WaitlistForm source="homepage" cta="JOIN THE WAITLIST" />
         </div>
       </section>
     </>

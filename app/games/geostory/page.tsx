@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WaitlistForm from "@/components/WaitlistForm";
 
 export const metadata: Metadata = {
   title: "Geostory — Historical Strategy Game",
@@ -35,10 +36,10 @@ export default function Geostory() {
             The strategy game Civilization fans have been waiting for. Fast turns. Deep realism. True history — or better.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="#kickstarter"
+            <a href="#waitlist"
               className="font-display tracking-widest px-8 py-4 rounded text-base hover:opacity-90 transition-all text-ink"
               style={{ background: "linear-gradient(135deg, #2d5a27, #4a9a3e, #7acc6a)", boxShadow: "0 4px 20px rgba(45,90,39,0.4)" }}>
-              BACK ON KICKSTARTER
+              JOIN THE WAITLIST
             </a>
             <a href="#features"
               className="font-display tracking-widest px-8 py-4 rounded text-base transition-all border"
@@ -130,9 +131,12 @@ export default function Geostory() {
       <section id="kickstarter" className="py-24 bg-ink/80">
         <div className="max-w-5xl mx-auto px-6">
           <div className="text-center mb-16">
-            <div className="font-display text-xs tracking-widest text-forest-light mb-4">KICKSTARTER CAMPAIGN</div>
+            <div className="font-display text-xs tracking-widest text-forest-light mb-4">KICKSTARTER PLAN — NOT LIVE YET</div>
             <h2 className="font-display text-4xl md:text-6xl mb-4" style={{ color: "#7acc6a" }}>FUND THE FUTURE</h2>
-            <p className="font-serif italic" style={{ color: "#7a9070" }}>Back Geostory and help build the strategy game geography always deserved.</p>
+            <p className="font-serif italic max-w-xl mx-auto" style={{ color: "#7a9070" }}>
+              The campaign isn&apos;t live yet. Join the waitlist and we&apos;ll email you the day it launches.
+              The goals and tiers below are the plan, not a live campaign.
+            </p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-6 mb-16">
@@ -181,25 +185,23 @@ export default function Geostory() {
                     </li>
                   ))}
                 </ul>
-                <button className="w-full mt-6 py-3 rounded font-display text-sm tracking-widest border transition-all"
+                <a href="#waitlist" className="block text-center w-full mt-6 py-3 rounded font-display text-sm tracking-widest border transition-all"
                   style={{
                     background: t.popular ? "#7acc6a" : "transparent",
                     color: t.popular ? "#0f0b06" : "#7acc6a",
                     borderColor: "#7acc6a",
-                  }}>PLEDGE {t.price}</button>
+                  }}>NOTIFY ME</a>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="py-20 px-6 text-center bg-ink">
+      <section id="waitlist" className="py-20 px-6 text-center bg-ink">
+        <div className="font-display text-xs tracking-widest text-forest-light mb-6">KICKSTARTER WAITLIST</div>
         <h2 className="font-display text-4xl md:text-5xl mb-4" style={{ color: "#7acc6a" }}>READY TO REWRITE HISTORY?</h2>
-        <p className="font-serif italic mb-8" style={{ color: "#7a9070" }}>Join the Geostory community. Shape what gets built.</p>
-        <a href="#kickstarter" className="inline-block font-display tracking-widest px-10 py-4 rounded text-base text-ink hover:opacity-90 transition-opacity"
-          style={{ background: "linear-gradient(135deg, #2d5a27, #4a9a3e)", boxShadow: "0 4px 20px rgba(45,90,39,0.4)" }}>
-          BACK GEOSTORY NOW
-        </a>
+        <p className="font-serif italic mb-8 max-w-md mx-auto" style={{ color: "#7a9070" }}>Leave your email and we&apos;ll tell you the moment the campaign goes live.</p>
+        <WaitlistForm source="geostory" cta="JOIN THE WAITLIST" />
       </section>
     </>
   );

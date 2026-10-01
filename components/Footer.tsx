@@ -11,10 +11,9 @@ export default function Footer() {
             <p className="text-sm leading-relaxed text-gold-dim mb-4">
               An indie game studio making bold, original games. Knoxville, TN.
             </p>
-            <div className="flex gap-4">
-              {["Twitter/X", "Discord", "Kickstarter"].map((s) => (
-                <a key={s} href="#" className="text-xs font-display tracking-widest text-gold hover:text-gold-light transition-colors">{s}</a>
-              ))}
+            <div className="flex gap-4 items-center flex-wrap">
+              <a href="https://www.instagram.com/emboogway/" target="_blank" rel="noreferrer" className="text-xs font-display tracking-widest text-gold hover:text-gold-light transition-colors">Instagram</a>
+              <span className="text-xs font-display tracking-widest text-gold-dim/50">X · Discord · Kickstarter — coming soon</span>
             </div>
           </div>
           <div>
@@ -23,7 +22,7 @@ export default function Footer() {
               <Link href="/games/waytable" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Waytable</Link>
               <Link href="/games/the-dm" className="text-sm text-cream-dim hover:text-gold-light transition-colors">The DM</Link>
               <Link href="/games/geostory" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Geostory</Link>
-              <Link href="/games/the-dm#kickstarter" className="text-sm text-gold hover:text-gold-light transition-colors font-medium">→ Back Us</Link>
+              <Link href="/games/the-dm#waitlist" className="text-sm text-gold hover:text-gold-light transition-colors font-medium">→ Join the waitlist</Link>
             </div>
           </div>
           <div>

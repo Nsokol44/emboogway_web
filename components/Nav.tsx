@@ -43,8 +43,8 @@ export default function Nav() {
               {l.label}
             </Link>
           ))}
-          <Link href="/games/the-dm#kickstarter" className="btn-shimmer px-5 py-2 rounded text-sm">
-            Back Us
+          <Link href="/games/the-dm#waitlist" className="btn-shimmer px-5 py-2 rounded text-sm">
+            Waitlist
           </Link>
         </div>
 
@@ -60,8 +60,8 @@ export default function Nav() {
               {l.label}
             </Link>
           ))}
-          <Link href="/games/the-dm#kickstarter" className="btn-shimmer px-5 py-3 rounded text-center text-sm" onClick={() => setOpen(false)}>
-            Back Us on Kickstarter
+          <Link href="/games/the-dm#waitlist" className="btn-shimmer px-5 py-3 rounded text-center text-sm" onClick={() => setOpen(false)}>
+            Join the Waitlist
           </Link>
         </div>
       )}

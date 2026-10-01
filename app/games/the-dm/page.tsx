@@ -4,6 +4,7 @@ import Particles from "@/components/Particles";
 import ScrollReveal from "@/components/ScrollReveal";
 import ClassSelector from "@/components/ClassSelector";
 import RoadmapTracker from "@/components/RoadmapTracker";
+import WaitlistForm from "@/components/WaitlistForm";
 
 export const metadata: Metadata = {
   title: "The DM — 2D Action RPG",
@@ -41,8 +42,17 @@ export default function TheDM() {
           <p className="font-serif italic text-xl text-cream-dim/80 max-w-lg mx-auto mb-10" style={{ animation: "fadeUp 0.8s ease 0.5s both" }}>
             One player wields the dungeon. Everyone else fights to survive it.
           </p>
+          <div className="reveal mx-auto mb-10 max-w-xl rounded-xl border border-gold/25 bg-bark/80 p-5 text-left">
+            <div className="font-display text-xs tracking-widest text-gold mb-2">PLAYABLE PROTOTYPE — TODAY</div>
+            <p className="text-sm leading-relaxed text-cream-dim/70">
+              The build running right now: <strong className="text-gold-light">4 classes</strong> (Warrior, Rogue, Mage, Cleric),
+              <strong className="text-gold-light"> 4 missions</strong>, real-time arena combat for
+              <strong className="text-gold-light"> 1–4 players</strong> on one machine, with upgrades between runs.
+              The 13-class roster, 5-act campaign, and human/AI DM mode below are the full campaign vision we are building toward.
+            </p>
+          </div>
           <div className="flex flex-col sm:flex-row gap-4 justify-center" style={{ animation: "fadeUp 0.8s ease 0.65s both" }}>
-            <a href="#kickstarter" className="btn-shimmer px-8 py-4 rounded text-base">BACK ON KICKSTARTER</a>
+            <a href="#waitlist" className="btn-shimmer px-8 py-4 rounded text-base">JOIN THE WAITLIST</a>
             <a href="#classes" className="border border-gold/50 text-gold-light font-display tracking-widest px-8 py-4 rounded text-base hover:bg-gold/10 transition-all">EXPLORE CLASSES</a>
           </div>
         </div>
@@ -64,10 +74,10 @@ export default function TheDM() {
               </p>
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { label: "13 Playable Classes", sub: "Full D&D roster", icon: "⚔️" },
-                  { label: "5-Act Campaign", sub: "40+ hours of story", icon: "📖" },
-                  { label: "Asymmetric DM Mode", sub: "Human or AI DM", icon: "🎲" },
-                  { label: "Gear Forge", sub: "Craft & customize", icon: "🔨" },
+                  { label: "4 Playable Classes", sub: "Warrior · Rogue · Mage · Cleric", icon: "⚔️" },
+                  { label: "4 Missions", sub: "Each with 3 stages", icon: "📖" },
+                  { label: "Local Co-op 1–4", sub: "One machine, full party", icon: "🎲" },
+                  { label: "Upgrade System", sub: "Spend points between runs", icon: "🔨" },
                 ].map(({ label, sub, icon }) => (
                   <div key={label} className="p-4 rounded-lg bg-bark border border-gold/15 hover-lift flex items-start gap-3">
                     <span className="text-xl">{icon}</span>
@@ -118,9 +128,12 @@ export default function TheDM() {
       <section id="kickstarter" className="py-24 bg-ink">
         <div className="max-w-5xl mx-auto px-6">
           <div className="text-center mb-16 reveal">
-            <div className="font-display text-xs tracking-widest text-gold mb-4">KICKSTARTER CAMPAIGN</div>
-            <h2 className="font-display text-4xl md:text-6xl text-gold-light mb-4">BACK THE DUNGEON</h2>
-            <p className="font-serif italic text-gold-dim">Help us bring The DM to life. Every backer shapes what gets built.</p>
+            <div className="font-display text-xs tracking-widest text-gold mb-4">KICKSTARTER PLAN — NOT LIVE YET</div>
+            <h2 className="font-display text-4xl md:text-6xl text-gold-light mb-4">THE DUNGEON IS COMING</h2>
+            <p className="font-serif italic text-gold-dim max-w-xl mx-auto">
+              Our campaign isn&apos;t live yet. Join the waitlist and we&apos;ll email you the day it launches —
+              early backers will shape what gets built. The goals and tiers below are the plan, not a live campaign.
+            </p>
           </div>
 
           {/* Funding goals */}
@@ -162,9 +175,9 @@ export default function TheDM() {
                     </li>
                   ))}
                 </ul>
-                <button className={`w-full mt-6 py-3 rounded font-display text-sm tracking-widest transition-all duration-200 hover:-translate-y-0.5 ${t.popular ? "bg-gold-light text-ink hover:opacity-90" : "border border-gold text-gold hover:bg-gold/10"}`}>
-                  PLEDGE {t.price}
-                </button>
+                <a href="#waitlist" className={`block text-center w-full mt-6 py-3 rounded font-display text-sm tracking-widest transition-all duration-200 hover:-translate-y-0.5 ${t.popular ? "bg-gold-light text-ink hover:opacity-90" : "border border-gold text-gold hover:bg-gold/10"}`}>
+                  NOTIFY ME
+                </a>
               </div>
             ))}
           </div>
@@ -212,13 +225,14 @@ export default function TheDM() {
         </div>
       </section>
 
-      <section className="relative py-24 px-6 text-center overflow-hidden bg-ink">
+      <section id="waitlist" className="relative py-24 px-6 text-center overflow-hidden bg-ink">
         <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at 50% 50%, rgba(196,62,28,0.07) 0%, transparent 70%)" }} />
         <Particles count={12} />
         <div className="relative z-10 reveal">
+          <div className="font-display text-xs tracking-widest text-ember mb-6">KICKSTARTER WAITLIST</div>
           <h2 className="font-display text-4xl md:text-5xl text-gold-light mb-4">READY TO ENTER THE DUNGEON?</h2>
-          <p className="font-serif italic text-cream-dim/60 mb-8">The DM is watching. Back us and shape what comes next.</p>
-          <a href="#kickstarter" className="inline-block btn-shimmer px-10 py-4 rounded text-base">BACK THE DM NOW</a>
+          <p className="font-serif italic text-cream-dim/60 mb-8 max-w-md mx-auto">The DM is watching. Leave your email and we&apos;ll tell you the moment the campaign goes live.</p>
+          <WaitlistForm source="the-dm" cta="JOIN THE WAITLIST" />
         </div>
       </section>
     </>

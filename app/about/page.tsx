@@ -44,15 +44,26 @@ export default function About() {
             <h2 className="font-display text-2xl text-gold-light mb-6">JOIN THE COMMUNITY</h2>
             <div className="grid sm:grid-cols-3 gap-4">
               {[
-                { label: "Twitter/X", handle: "@Emboogway", color: "#c9963a" },
-                { label: "Discord", handle: "discord.gg/emboogway", color: "#7acc6a" },
-                { label: "Kickstarter", handle: "Follow Us", color: "#c43e1c" },
-              ].map(({ label, handle, color }) => (
-                <div key={label} className="p-4 rounded-lg text-center bg-ink border" style={{ borderColor: `${color}22` }}>
-                  <div className="font-display text-sm mb-1" style={{ color }}>{label}</div>
-                  <div className="text-xs text-gold-dim">{handle}</div>
-                </div>
-              ))}
+                { label: "Instagram", handle: "@emboogway", color: "#c9963a", href: "https://www.instagram.com/emboogway/" },
+                { label: "Discord", handle: "Coming soon", color: "#7acc6a", href: null },
+                { label: "Kickstarter", handle: "Coming soon", color: "#c43e1c", href: null },
+              ] .map(({ label, handle, color, href }) => {
+                const inner = (
+                  <>
+                    <div className="font-display text-sm mb-1" style={{ color }}>{label}</div>
+                    <div className="text-xs text-gold-dim">{handle}</div>
+                  </>
+                );
+                return href ? (
+                  <a key={label} href={href} target="_blank" rel="noreferrer" className="p-4 rounded-lg text-center bg-ink border hover:-translate-y-0.5 transition-transform block" style={{ borderColor: `${color}22` }}>
+                    {inner}
+                  </a>
+                ) : (
+                  <div key={label} className="p-4 rounded-lg text-center bg-ink border" style={{ borderColor: `${color}22` }}>
+                    {inner}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
