@@ -163,7 +163,6 @@ export default function Home() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
               { name: "Beat Knight", status: "Godot prototype", desc: "A rhythm-combat side-scroller where stages sync to the music and your combo raises the intensity." },
-              { name: "DnD Action Adventure", status: "Godot prototype", desc: "Real-time action RPG for 1–4 players, built to feel like a quick D&D session with classes, missions, and upgrades." },
               { name: "Mage of Tharad Zur", status: "Godot prototype", desc: "An endless runner where you draw sigils on screen to cast spells — power builds corruption, and corruption bites back." },
               { name: "Minotaur Rampage", status: "Godot prototype", desc: "A 3D kaiju rampage for 1–4 minotaurs: smash the city, earn gold, upgrade, and smash it harder." },
               { name: "Harvest Ledger", status: "Godot prototype", desc: "A farming-and-ledger experiment in active development." },
@@ -186,7 +185,7 @@ export default function Home() {
             {[
               { num: 566, prefix: "$", suffix: "K+", label: "In Grants Secured" },
               { num: 10, prefix: "", suffix: "+ Yrs", label: "Research Experience" },
-              { num: 9, prefix: "", suffix: "", label: "Projects in Development" },
+              { num: 8, prefix: "", suffix: "", label: "Projects in Development" },
               { num: 13, prefix: "", suffix: "", label: "Playable Classes" },
             ].map(({ num, prefix, suffix, label }) => (
               <div key={label} className="reveal-scale">
