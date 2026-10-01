@@ -68,6 +68,28 @@ export default function Waytable() {
         <div className="animate-float absolute bottom-10 left-1/2 text-gold-dim text-2xl">↓</div>
       </section>
 
+      {/* SCREENSHOTS */}
+      <section className="py-24 px-6 bg-ink">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12 reveal">
+            <div className="font-display text-xs tracking-widest text-gold-dim mb-4">FROM THE LIVE APP</div>
+            <h2 className="font-display text-4xl md:text-5xl text-gold-light">THIS IS THE PRODUCT</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8 items-end">
+            <div className="md:col-span-2 reveal">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/media/waytable-desktop.png" alt="Waytable — start a table, pick a campaign, or join with a code" className="rounded-xl border border-gold/30 shadow-2xl shadow-black/60 w-full" />
+              <p className="text-xs text-cream-dim/40 mt-3 text-center">Start a table or join with a code — Classic campaigns and Monster Collector, right in the browser.</p>
+            </div>
+            <div className="reveal" style={{ transitionDelay: "120ms" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/media/waytable-mobile.png" alt="Waytable on mobile" className="rounded-xl border border-gold/30 shadow-2xl shadow-black/60 w-full max-w-[280px] mx-auto" />
+              <p className="text-xs text-cream-dim/40 mt-3 text-center">Same table, in your pocket.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* WHAT IT IS */}
       <section id="how-it-works" className="py-24 bg-ink">
         <div className="max-w-5xl mx-auto px-6">

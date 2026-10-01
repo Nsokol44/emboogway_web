@@ -12,8 +12,7 @@ export default function Footer() {
               An indie game studio making bold, original games. Knoxville, TN.
             </p>
             <div className="flex gap-4 items-center flex-wrap">
-              <a href="https://www.instagram.com/emboogway/" target="_blank" rel="noreferrer" className="text-xs font-display tracking-widest text-gold hover:text-gold-light transition-colors">Instagram</a>
-              <span className="text-xs font-display tracking-widest text-gold-dim/50">X · Discord · Kickstarter — coming soon</span>
+              <a href="https://www.instagram.com/emboogway/" target="_blank" rel="noreferrer" className="text-xs font-display tracking-widest text-gold hover:text-gold-light transition-colors">Follow us on Instagram</a>
             </div>
           </div>
           <div>

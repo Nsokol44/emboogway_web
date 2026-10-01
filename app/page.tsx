@@ -151,6 +151,34 @@ export default function Home() {
         </div>
       </section>
 
+      {/* SEE IT LIVE */}
+      <section className="py-20 px-6 bg-ink">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12 reveal">
+            <div className="font-display text-xs tracking-widest text-gold-dim mb-4">SEE IT LIVE</div>
+            <h2 className="font-display text-4xl md:text-5xl text-gold-light">THE TABLE, RUNNING NOW</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8 items-end">
+            <div className="md:col-span-2 reveal">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/media/waytable-desktop.png" alt="Waytable — start a table, pick a campaign, or join with a code" className="rounded-xl border border-gold/30 shadow-2xl shadow-black/60 w-full" />
+            </div>
+            <div className="reveal" style={{ transitionDelay: "120ms" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/media/waytable-mobile.png" alt="Waytable on mobile" className="rounded-xl border border-gold/30 shadow-2xl shadow-black/60 w-full max-w-[280px] mx-auto" />
+            </div>
+          </div>
+          <p className="text-center text-sm text-cream-dim/50 mt-8 max-w-xl mx-auto">
+            Real screens from the live Waytable app — the same table you can join with a code right now.
+          </p>
+          <div className="flex justify-center mt-6">
+            <a href="https://grimtable-gold.vercel.app" target="_blank" rel="noopener noreferrer" className="btn-shimmer px-8 py-4 rounded text-base">
+              PLAY IT YOURSELF →
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* ── IN THE WORKSHOP ── */}
       <section className="py-28 bg-bark/20 border-y border-gold-dim/10">
         <div className="max-w-6xl mx-auto px-6">
