@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
 
-// STOPGAP: stores signups in a JSON file on the server filesystem.
-// This works for local dev and single-instance deploys, but Vercel's
-// filesystem is ephemeral — connect a real backend (Supabase table,
-// ConvertKit/Buttondown, etc.) before relying on this for a launch.
-const DATA_FILE = path.join(process.cwd(), "data", "waitlist.json");
+// STOPGAP: stores signups in a JSON file on the server.
+// On Vercel serverless, only /tmp is writable and it is ephemeral —
+// signups survive on a single warm instance but can be lost on redeploy.
+// Connect a real backend (Supabase table, ConvertKit/Buttondown, etc.)
+// before relying on this for a launch.
+const DATA_FILE = path.join(os.tmpdir(), "emboogway-waitlist.json");
 
 type Entry = { email: string; source: string; createdAt: string };
 
