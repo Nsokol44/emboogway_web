@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import Particles from "@/components/Particles";
 import ScrollReveal from "@/components/ScrollReveal";
 
 export const metadata: Metadata = {
   title: "Emboogway | Indie Game Studio",
-  description: "Emboogway is a bold indie game studio crafting The DM and Geostory. Two Kickstarter campaigns launching soon. Made in Knoxville, TN.",
+  description: "Emboogway is a bold indie game studio crafting Waytable, The DM, and Geostory. Waytable is live in the browser; our flagship games and Godot prototypes are in active development. Made in Knoxville, TN.",
 };
 
 export default function Home() {
@@ -29,12 +30,17 @@ export default function Home() {
             <div className="h-px w-10 bg-gold-dim" />
           </div>
 
-          <h1
-            className="font-display text-gold-light leading-none mb-6 animate-glow-pulse"
-            style={{ fontSize: "clamp(60px, 13vw, 150px)", letterSpacing: "0.08em", textShadow: "0 0 80px rgba(201,150,58,0.3), 0 4px 0 rgba(0,0,0,0.5)", animation: "fadeUp 0.8s ease 0.2s both, glow-pulse 4s ease-in-out 1s infinite" }}
-          >
-            EMBOOGWAY
-          </h1>
+          <div className="mb-6 flex justify-center" style={{ animation: "fadeUp 0.8s ease 0.2s both" }}>
+            <Image
+              src="/emboogway-wordmark-gold.png"
+              alt="Emboogway"
+              width={2720}
+              height={427}
+              priority
+              className="w-[min(88vw,880px)] h-auto drop-shadow-[0_0_45px_rgba(201,150,58,0.28)]"
+            />
+          </div>
+          <h1 className="sr-only">Emboogway</h1>
 
           <p className="font-serif italic text-xl md:text-2xl text-cream-dim/80 max-w-lg mx-auto mb-12 leading-relaxed"
             style={{ animation: "fadeUp 0.8s ease 0.4s both" }}>
@@ -42,7 +48,11 @@ export default function Home() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center" style={{ animation: "fadeUp 0.8s ease 0.6s both" }}>
-            <Link href="/games/the-dm" className="btn-shimmer px-8 py-4 rounded text-base font-bold">
+            <a href="https://grimtable-gold.vercel.app" target="_blank" rel="noreferrer" className="btn-shimmer px-8 py-4 rounded text-base font-bold">
+              WAYTABLE — Play in Browser
+            </a>
+            <Link href="/games/the-dm"
+              className="border border-gold/50 text-gold-light font-display tracking-widest px-8 py-4 rounded text-base hover:bg-gold/10 hover:border-gold transition-all duration-300">
               THE DM — Coming to Kickstarter
             </Link>
             <Link href="/games/geostory"
@@ -60,11 +70,34 @@ export default function Home() {
       <section className="py-28 bg-ink">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-20 reveal">
-            <div className="font-display text-xs tracking-widest text-gold-dim mb-4">OUR GAMES</div>
-            <h2 className="font-display text-5xl md:text-6xl text-gold-light">TWO WORLDS. ONE STUDIO.</h2>
+            <div className="font-display text-xs tracking-widest text-gold-dim mb-4">OUR GAMES & PLATFORMS</div>
+            <h2 className="font-display text-5xl md:text-6xl text-gold-light">WHAT WE&apos;RE BUILDING</h2>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {/* Waytable */}
+            <Link href="/games/waytable" className="group block reveal-left">
+              <div className="relative rounded-xl overflow-hidden border border-gold/30 bg-bark p-12 hover-lift h-full">
+                <div className="absolute top-0 right-0 w-48 h-48 rounded-full" style={{ background: "radial-gradient(circle, rgba(201,150,58,0.16) 0%, transparent 70%)" }} />
+                <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-gold/40 group-hover:border-gold-light transition-colors duration-300" />
+                <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-gold/40 group-hover:border-gold-light transition-colors duration-300" />
+
+                <div className="font-display text-xs tracking-widest text-gold-light mb-4">AI-DM TABLETOP PLATFORM · LIVE IN BROWSER</div>
+                <h3 className="font-display text-gold-light leading-none mb-4" style={{ fontSize: "clamp(40px, 6vw, 72px)" }}>WAYTABLE</h3>
+                <p className="text-sm leading-relaxed text-gold-dim mb-8">
+                  Tabletop RPG that leaves the table. An AI Dungeon Master runs the session in your browser — the host starts a table, friends and guests join free by code, and your pixel Avi can level up when you walk the real world.
+                </p>
+                <div className="flex flex-wrap gap-2 mb-8">
+                  {["Browser / PWA", "AI DM", "Join by Code", "Power Spots", "Host Pays · Guests Free"].map(tag => (
+                    <span key={tag} className="tag text-xs px-3 py-1 rounded-full bg-gold/10 text-gold border border-gold/20">{tag}</span>
+                  ))}
+                </div>
+                <div className="font-display text-sm tracking-widest text-gold group-hover:text-gold-light transition-colors flex items-center gap-2">
+                  PLAY WAYTABLE <span className="group-hover:translate-x-2 transition-transform duration-300 inline-block">→</span>
+                </div>
+              </div>
+            </Link>
+
             {/* The DM */}
             <Link href="/games/the-dm" className="group block reveal-left">
               <div className="relative rounded-xl overflow-hidden border border-gold/20 bg-bark p-12 hover-lift">
@@ -117,6 +150,35 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── IN THE WORKSHOP ── */}
+      <section className="py-28 bg-bark/20 border-y border-gold-dim/10">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16 reveal">
+            <div className="font-display text-xs tracking-widest text-gold-dim mb-4">IN THE WORKSHOP</div>
+            <h2 className="font-display text-4xl md:text-5xl text-gold-light">MORE WORLDS IN PROGRESS</h2>
+            <p className="text-sm leading-relaxed text-cream-dim/60 max-w-2xl mx-auto mt-5">
+              Alongside Waytable, The DM, and Geostory, we keep a bench of Godot prototypes — small, strange, and built to find the fun fast.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              { name: "Beat Knight", status: "Godot prototype", desc: "A rhythm-combat side-scroller where stages sync to the music and your combo raises the intensity." },
+              { name: "DnD Action Adventure", status: "Godot prototype", desc: "Real-time action RPG for 1–4 players, built to feel like a quick D&D session with classes, missions, and upgrades." },
+              { name: "Mage of Tharad Zur", status: "Godot prototype", desc: "An endless runner where you draw sigils on screen to cast spells — power builds corruption, and corruption bites back." },
+              { name: "Minotaur Rampage", status: "Godot prototype", desc: "A 3D kaiju rampage for 1–4 minotaurs: smash the city, earn gold, upgrade, and smash it harder." },
+              { name: "Harvest Ledger", status: "Godot prototype", desc: "A farming-and-ledger experiment in active development." },
+              { name: "Twerk Monster", status: "Godot prototype", desc: "A monster prototype in active development. Yes, really. That is the name." },
+            ].map(({ name, status, desc }, i) => (
+              <div key={name} className="reveal rounded-xl border border-gold/15 bg-ink p-6 hover-lift" style={{ transitionDelay: `${i * 60}ms` }}>
+                <div className="font-display text-xs tracking-widest text-gold mb-3">{status}</div>
+                <h3 className="font-display text-2xl text-gold-light mb-3">{name}</h3>
+                <p className="text-sm leading-relaxed text-cream-dim/60">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── ANIMATED STATS ── */}
       <section className="py-20 border-y border-gold-dim/10" style={{ background: "radial-gradient(ellipse at 50% 50%, rgba(201,150,58,0.04) 0%, transparent 70%), #0a0704" }}>
         <div className="max-w-6xl mx-auto px-6">
@@ -124,7 +186,7 @@ export default function Home() {
             {[
               { num: 566, prefix: "$", suffix: "K+", label: "In Grants Secured" },
               { num: 10, prefix: "", suffix: "+ Yrs", label: "Research Experience" },
-              { num: 2, prefix: "", suffix: "", label: "Games in Development" },
+              { num: 9, prefix: "", suffix: "", label: "Projects in Development" },
               { num: 13, prefix: "", suffix: "", label: "Playable Classes" },
             ].map(({ num, prefix, suffix, label }) => (
               <div key={label} className="reveal-scale">

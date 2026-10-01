@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Studio — Emboogway",
-  description: "Learn about Emboogway, the indie game studio behind The DM and Geostory. Led by Dr. Nicholas Sokol, PhD Geographer and entrepreneur.",
+  description: "Learn about Emboogway, the indie game studio behind Waytable, The DM, and Geostory. Led by Dr. Nicholas Sokol, PhD Geographer and entrepreneur.",
 };
 
 export default function Studio() {
@@ -29,7 +29,7 @@ export default function Studio() {
             <div className="font-display text-xs tracking-widest text-gold mb-4">THE MISSION</div>
             <h2 className="font-display text-4xl text-gold-light mb-6">WHAT WE BUILD</h2>
             <p className="leading-relaxed text-cream-dim/60 mb-4">Games born from the question: &ldquo;Why hasn&apos;t anyone built this?&rdquo;</p>
-            <p className="leading-relaxed text-cream-dim/60">The DM asks: what if the dungeon fought back? Geostory asks: what if a strategy game actually understood geography? These are the gaps we live to fill.</p>
+            <p className="leading-relaxed text-cream-dim/60">Waytable asks: what if a tabletop RPG could leave the table? The DM asks: what if the dungeon fought back? Geostory asks: what if a strategy game actually understood geography? These are the gaps we live to fill.</p>
           </div>
         </div>
       </section>

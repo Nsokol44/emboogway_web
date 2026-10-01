@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Footer() {
   return (
@@ -6,7 +7,7 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-6 py-16">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10 mb-12">
           <div className="col-span-2 md:col-span-1">
-            <div className="font-display text-3xl tracking-widest text-gold-light mb-3">EMBOOGWAY</div>
+            <Image src="/emboogway-wordmark-light.png" alt="Emboogway" width={2720} height={427} className="h-9 w-auto mb-4" />
             <p className="text-sm leading-relaxed text-gold-dim mb-4">
               An indie game studio making bold, original games. Knoxville, TN.
             </p>
@@ -19,6 +20,7 @@ export default function Footer() {
           <div>
             <div className="font-display text-xs tracking-widest text-gold mb-4">GAMES</div>
             <div className="flex flex-col gap-3">
+              <Link href="/games/waytable" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Waytable</Link>
               <Link href="/games/the-dm" className="text-sm text-cream-dim hover:text-gold-light transition-colors">The DM</Link>
               <Link href="/games/geostory" className="text-sm text-cream-dim hover:text-gold-light transition-colors">Geostory</Link>
               <Link href="/games/the-dm#kickstarter" className="text-sm text-gold hover:text-gold-light transition-colors font-medium">→ Back Us</Link>

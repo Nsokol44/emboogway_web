@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Menu, X } from "lucide-react";
 
 export default function Nav() {
@@ -14,6 +15,7 @@ export default function Nav() {
   }, []);
 
   const links = [
+    { href: "/games/waytable", label: "Waytable" },
     { href: "/games/the-dm", label: "The DM" },
     { href: "/games/geostory", label: "Geostory" },
     { href: "/devlog", label: "Devlog" },
@@ -24,11 +26,15 @@ export default function Nav() {
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-ink/95 backdrop-blur-md border-b border-gold-dim/20" : "bg-transparent"}`}>
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-9 h-9 rounded bg-gradient-to-br from-gold-dim to-gold flex items-center justify-center font-display text-base text-ink group-hover:scale-110 transition-transform duration-300">
-            E
-          </div>
-          <span className="font-display text-xl tracking-widest text-gold-light hidden sm:block">EMBOOGWAY</span>
+        <Link href="/" className="flex items-center gap-3 group" aria-label="Emboogway home">
+          <Image
+            src="/emboogway-wordmark-light.png"
+            alt="Emboogway"
+            width={2720}
+            height={427}
+            priority
+            className="h-7 w-auto group-hover:scale-[1.03] transition-transform duration-300 sm:h-8"
+          />
         </Link>
 
         <div className="hidden md:flex items-center gap-6">
