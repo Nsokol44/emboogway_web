@@ -42,9 +42,10 @@ export default function About() {
           <div className="p-8 rounded-xl bg-bark border border-gold/20 mb-16">
             <div className="font-display text-xs tracking-widest text-gold mb-4">STAY CONNECTED</div>
             <h2 className="font-display text-2xl text-gold-light mb-6">JOIN THE COMMUNITY</h2>
-            <div className="grid sm:grid-cols-1 gap-4 max-w-md mx-auto">
+            <div className="grid sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
               {[
-                { label: "Instagram", handle: "@emboogway — that's where we post", color: "#c9963a", href: "https://www.instagram.com/emboogway/" },
+                { label: "Instagram", handle: "@emboogway", color: "#c9963a", href: "https://www.instagram.com/emboogway/" },
+                { label: "TikTok", handle: "@Emboogway", color: "#c43e1c", href: "https://www.tiktok.com/@Emboogway" },
               ] .map(({ label, handle, color, href }) => {
                 const inner = (
                   <>
