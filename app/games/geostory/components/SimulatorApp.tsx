@@ -15,6 +15,9 @@ const DEFAULT_PANELS: { id: number; cfg: SimConfig }[] = [
   { id: 2, cfg: { scenarioId: "chokepoint", seed: "hormuz-7", boosts: ZERO_BOOSTS } },
 ];
 
+const GOLD = "#f0c060";
+const MUTED = "#93a7bd";
+
 export default function SimulatorApp() {
   const [panels, setPanels] = useState(DEFAULT_PANELS);
   const [yearFloat, setYearFloat] = useState(0);
@@ -54,14 +57,17 @@ export default function SimulatorApp() {
 
   return (
     <div>
-      {/* transport bar */}
-      <div className="sticky top-[76px] z-40 mx-auto max-w-[1500px] px-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border px-3 py-2.5 backdrop-blur-md"
-          style={{ background: "rgba(15,11,6,0.88)", borderColor: "rgba(201,150,58,0.35)", boxShadow: "0 12px 34px rgba(0,0,0,0.55)" }}>
+      {/* transport bar — sticks BELOW the fixed site nav: its offset is the
+          nav's own height (--nav-h in globals.css, matched to Nav.tsx) plus
+          a breathing gap, and it sits under the nav in z-order on an opaque
+          navy plate, so the two can never overlap at any width. */}
+      <div className="sticky z-30 mx-auto max-w-[1500px] px-3" style={{ top: "calc(var(--nav-h) + 10px)" }}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2"
+          style={{ background: "rgba(5,17,32,0.96)", borderColor: "rgba(201,150,58,0.40)", boxShadow: "0 14px 34px rgba(0,0,0,0.6), inset 0 1px 0 rgba(240,192,96,0.14)" }}>
           <button
             onClick={() => { if (yearFloat >= MAX_YEAR_IDX) setYearFloat(0); setPlaying((p) => !p); }}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-lg"
-            style={{ background: "linear-gradient(135deg,#2d5a27,#4a9a3e)", color: "#eaf5e4", boxShadow: "0 4px 16px rgba(45,90,39,0.5)" }}
+            style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.45)" }}
             aria-label={playing ? "Pause" : "Play"}
           >
             {playing ? "❚❚" : "▶"}
@@ -74,27 +80,27 @@ export default function SimulatorApp() {
             ⟲ 2026
           </button>
           <div className="shrink-0 text-center">
-            <div className="font-display text-3xl leading-none" style={{ color: "#f0c060" }}>{year}</div>
-            <div className="text-[9px] tracking-widest" style={{ color: "#9ab890" }}>YEAR</div>
+            <div className="font-display text-3xl leading-none" style={{ color: GOLD }}>{year}</div>
+            <div className="text-[9px] tracking-[0.22em]" style={{ color: MUTED }}>YEAR</div>
           </div>
           <input
             type="range" min="0" max={MAX_YEAR_IDX} step="0.05" value={yearFloat}
             onChange={(e) => { setPlaying(false); setYearFloat(parseFloat(e.target.value)); }}
-            className="min-w-[120px] flex-1 accent-[#c9963a]"
+            className="gs-range min-w-[110px] flex-1"
             aria-label="Year scrubber"
           />
           <div className="flex shrink-0 overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }}>
             {SPEEDS.map((s) => (
               <button key={s} onClick={() => setSpeed(s)} className="px-2 py-1.5 font-mono text-[11px]"
-                style={{ background: speed === s ? "#c9963a" : "transparent", color: speed === s ? "#0f0b06" : "#cbb27a" }}>
+                style={{ background: speed === s ? "#c9963a" : "transparent", color: speed === s ? "#081426" : "#cbb27a" }}>
                 {s}×
               </button>
             ))}
           </div>
-          <div className="flex min-w-0 flex-wrap overflow-hidden rounded-md border" style={{ borderColor: "rgba(122,204,106,0.35)" }}>
+          <div className="flex min-w-0 flex-wrap overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }}>
             {LAYERS.map((l) => (
               <button key={l.id} onClick={() => setLayer(l.id)} className="px-2 py-1.5 text-[11px] tracking-wide"
-                style={{ background: layer === l.id ? "#2d5a27" : "transparent", color: layer === l.id ? "#eaf5e4" : "#9ab890" }}
+                style={{ background: layer === l.id ? "#c9963a" : "transparent", color: layer === l.id ? "#081426" : "#cdbfa5" }}
                 title={l.blurb}>
                 {l.name.toUpperCase()}
               </button>
@@ -104,12 +110,12 @@ export default function SimulatorApp() {
             onClick={addPanel}
             disabled={panels.length >= 4}
             className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider disabled:opacity-40"
-            style={{ borderColor: "rgba(201,150,58,0.4)", color: "#f0c060" }}
+            style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
           >
             ＋ COMPARE SIM ({panels.length}/4)
           </button>
         </div>
-        <p className="px-1 pt-1.5 text-center text-[11px]" style={{ color: "#77875f" }}>
+        <p className="px-1 pt-1.5 text-center text-[11px]" style={{ color: "#5f748c", textShadow: "0 1px 6px rgba(3,10,20,0.9)" }}>
           {LAYERS.find((l) => l.id === layer)?.blurb} · click any tile or country to inspect it · playback is synchronised across all sims
         </p>
       </div>
@@ -127,7 +133,10 @@ export default function SimulatorApp() {
             selectedIdx={selectedIdx}
             onSelect={setSelectedIdx}
             onRemove={panels.length > 1 ? () => setPanels((ps) => ps.filter((x) => x.id !== p.id)) : undefined}
-            onDuplicate={panels.length < 4 ? () => { const id = nextId++; setPanels((ps) => [...ps, { id, cfg: { ...p.cfg, boosts: { ...p.cfg.boosts } } }]); } : undefined}
+            onDuplicate={panels.length < 4 ? () => {
+              const id = nextId++;
+              setPanels((ps) => [...ps, { id, cfg: { ...p.cfg, boosts: { ...p.cfg.boosts }, rivals: p.cfg.rivals?.map((r) => ({ ...r, boosts: { ...r.boosts } })), deck: p.cfg.deck ? { ...p.cfg.deck } : undefined } }]);
+            } : undefined}
           />
         ))}
       </div>

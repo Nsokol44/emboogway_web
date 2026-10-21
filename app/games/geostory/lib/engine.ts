@@ -27,11 +27,29 @@ export interface Boosts {
 }
 export const ZERO_BOOSTS: Boosts = { growth: 0, tech: 0, military: 0, resources: 0 };
 
+/** A second (or third) hand-boosted country, set up as a rival to the focus. */
+export interface RivalBoost {
+  code: string;
+  boosts: Boosts;
+}
+
+/** Player-tunable shock deck. Defaults reproduce the original deck exactly. */
+export interface DeckControls {
+  chokepoints: boolean;
+  climate: boolean;
+  pandemics: boolean;
+  rushes: boolean;
+  chaos: number; // 0..2 shock-frequency multiplier
+}
+export const DEFAULT_DECK: DeckControls = { chokepoints: true, climate: true, pandemics: true, rushes: true, chaos: 1 };
+
 export interface SimConfig {
   scenarioId: string;
   seed: string;
   focusCode?: string;
   boosts: Boosts;
+  rivals?: RivalBoost[];
+  deck?: DeckControls;
 }
 
 export interface CountrySnap {
@@ -94,7 +112,16 @@ function ownPower(gdp: number, mil: number, tech: number, stab: number): number 
 export function runSimulation(cfg: SimConfig): SimResult {
   const scenario = getScenario(cfg.scenarioId);
   const mods: ScenarioMods = scenario.mods;
-  const rng = new Rng([cfg.seed, cfg.scenarioId, cfg.focusCode ?? "", cfg.boosts.growth, cfg.boosts.tech, cfg.boosts.military, cfg.boosts.resources].join("|"));
+  const deck: DeckControls = cfg.deck ?? DEFAULT_DECK;
+  const chaos = clamp(deck.chaos, 0, 2.5);
+  const rivals = [...(cfg.rivals ?? [])].sort((a, b) => a.code.localeCompare(b.code));
+  const seedParts = [
+    cfg.seed, cfg.scenarioId, cfg.focusCode ?? "",
+    cfg.boosts.growth, cfg.boosts.tech, cfg.boosts.military, cfg.boosts.resources,
+    rivals.map((r) => `${r.code}:${r.boosts.growth},${r.boosts.tech},${r.boosts.military},${r.boosts.resources}`).join(";"),
+    [deck.chokepoints, deck.climate, deck.pandemics, deck.rushes, deck.chaos].join(","),
+  ];
+  const rng = new Rng(seedParts.join("|"));
   const focusIdx = cfg.focusCode ? CODE_IDX.get(cfg.focusCode) : undefined;
 
   /* ---------------------------------------------------------- init state */
@@ -124,17 +151,21 @@ export function runSimulation(cfg: SimConfig): SimResult {
     }
   };
   applyBoostMap(mods.boosts);
-  if (focusIdx !== undefined) {
-    const b = cfg.boosts;
-    st[focusIdx].growthAdd += (b.growth / 100) * 3.2;
-    st[focusIdx].tech = clamp(st[focusIdx].tech + (b.tech / 100) * 14, 5, 100);
-    st[focusIdx].techMod += (b.tech / 100) * 0.22;
-    st[focusIdx].milShare *= 1 + (b.military / 100) * 1.6;
-    st[focusIdx].baseShare *= 1 + (b.military / 100) * 1.6;
+  const applyHandBoosts = (idx: number, b: Boosts) => {
+    st[idx].growthAdd += (b.growth / 100) * 3.2;
+    st[idx].tech = clamp(st[idx].tech + (b.tech / 100) * 14, 5, 100);
+    st[idx].techMod += (b.tech / 100) * 0.22;
+    st[idx].milShare *= 1 + (b.military / 100) * 1.6;
+    st[idx].baseShare *= 1 + (b.military / 100) * 1.6;
     const r = (b.resources / 100) * 42;
-    st[focusIdx].energy = clamp(st[focusIdx].energy + r, 0, 100);
-    st[focusIdx].minerals = clamp(st[focusIdx].minerals + r, 0, 100);
-    st[focusIdx].food = clamp(st[focusIdx].food + r * 0.7, 0, 100);
+    st[idx].energy = clamp(st[idx].energy + r, 0, 100);
+    st[idx].minerals = clamp(st[idx].minerals + r, 0, 100);
+    st[idx].food = clamp(st[idx].food + r * 0.7, 0, 100);
+  };
+  if (focusIdx !== undefined) applyHandBoosts(focusIdx, cfg.boosts);
+  for (const r of rivals) {
+    const ri = CODE_IDX.get(r.code);
+    if (ri !== undefined && ri !== focusIdx) applyHandBoosts(ri, r.boosts);
   }
 
   const events: SimEvent[] = [];
@@ -163,16 +194,70 @@ export function runSimulation(cfg: SimConfig): SimResult {
     }
     events.push({ year, kind: "shock", text: `${label} — drought and hydroclimate stress hammer the ${region.replace(/([A-Z])/g, " $1").toLowerCase()} belt; harvests, growth and stability all slip.` });
   };
-  const chokepointHit = (which: "hormuz" | "suez" | "panama", mult: number, year: number) => {
-    const label = which === "hormuz" ? "Strait of Hormuz" : which === "suez" ? "Suez Canal" : "Panama Canal";
+  const chokepointHit = (which: "hormuz" | "suez" | "panama" | "malacca", mult: number, year: number) => {
+    const label = which === "hormuz" ? "Strait of Hormuz" : which === "suez" ? "Suez Canal" : which === "panama" ? "Panama Canal" : "Strait of Malacca";
     for (let i = 0; i < N; i++) {
       const isGulf = GULF.includes(COUNTRIES[i].code);
       if (which === "hormuz" && isGulf) { st[i].growthMod -= 1.5 * mult; continue; }
+      if (which === "malacca") {
+        // the strait's keepers and alternative routes cash in; the workshop
+        // economies that ship through it stall
+        if (["MYS", "IDN", "SGP"].includes(COUNTRIES[i].code)) { st[i].growthMod += 0.9 * mult; continue; }
+        if (REGIONS.seasia.includes(COUNTRIES[i].code)) { st[i].growthMod -= 1.1 * mult; continue; }
+        if (st[i].tech > 70 && st[i].energy < 40) { st[i].growthMod -= 0.85 * mult; continue; }
+      }
       if (st[i].energy < 35) st[i].growthMod -= (which === "hormuz" ? 1.3 : 0.9) * mult;
       if (st[i].energy > 75 && !isGulf) st[i].growthMod += 0.85 * mult; // alternative suppliers cash in
       if (which !== "hormuz" && st[i].tech > 72 && st[i].energy < 40) st[i].growthMod -= 0.7 * mult;
     }
     events.push({ year, kind: "shock", text: `${label} closed — energy and trade shock ripples worldwide; importers stall while rival exporters cash in.` });
+  };
+  const findHit = (code: string, year: number, lithium = false) => {
+    const i = CODE_IDX.get(code);
+    if (i === undefined) return;
+    if (lithium) {
+      st[i].minerals = clamp(st[i].minerals + 26, 0, 100);
+      st[i].growthMod += 1.1;
+      events.push({ year, kind: "shock", text: `Lithium boom in ${name(i)} — the battery age has a new capital, and the money arrives faster than the institutions.` });
+      return;
+    }
+    if (rng.chance(0.5)) st[i].minerals = clamp(st[i].minerals + 20, 0, 100);
+    else st[i].energy = clamp(st[i].energy + 20, 0, 100);
+    st[i].growthMod += 1.3;
+    events.push({ year, kind: "shock", text: `Major resource discovery in ${name(i)} — a boom begins and the region's maths changes overnight.` });
+  };
+  const boomHit = (code: string, year: number) => {
+    const i = CODE_IDX.get(code);
+    if (i === undefined) return;
+    st[i].growthMod += 2.2;
+    st[i].stab = clamp(st[i].stab + 0.03, 0.04, 0.97);
+    events.push({ year, kind: "shock", text: `Investment boom in ${name(i)} — ports, grids and industrial parks rise on a wave of foreign money and domestic nerve.` });
+  };
+  const breakthroughHit = (code: string, year: number) => {
+    const i = CODE_IDX.get(code);
+    if (i === undefined) return;
+    st[i].tech = clamp(st[i].tech + 5, 5, 100);
+    st[i].growthMod += 0.55;
+    events.push({ year, kind: "shock", text: `Tech breakthrough in ${name(i)} — a leap in capability the rest of the world must now answer.` });
+  };
+  const arcticHit = (year: number) => {
+    for (let i = 0; i < N; i++) {
+      if (COUNTRIES[i].lat < 52) continue;
+      st[i].energy = clamp(st[i].energy + 5, 0, 100);
+      st[i].minerals = clamp(st[i].minerals + 4, 0, 100);
+      st[i].growthMod += 0.5;
+    }
+    events.push({ year, kind: "shock", text: `The Arctic opens another season — polar routes shorten, northern ports boom, and the high-latitude resource frontier moves again.` });
+  };
+  const pickHydroRegion = (): string => {
+    const keys = Object.keys(REGIONS);
+    const bias = mods.regionBias;
+    if (!bias) return rng.pick(keys);
+    let total = 0;
+    const weights = keys.map((k) => { const w = bias[k] ?? 1; total += w; return w; });
+    let rollW = rng.next() * total;
+    for (let k = 0; k < keys.length; k++) { rollW -= weights[k]; if (rollW <= 0) return keys[k]; }
+    return keys[keys.length - 1];
   };
 
   /* ------------------------------------------------------------ main loop */
@@ -185,16 +270,26 @@ export function runSimulation(cfg: SimConfig): SimResult {
         if (s.year !== year) continue;
         if (s.kind === "hormuz") chokepointHit("hormuz", 1.8, year);
         else if (s.kind === "suez") chokepointHit("suez", 1.5, year);
+        else if (s.kind === "malacca") chokepointHit("malacca", 1.5, year);
+        else if (s.kind === "arctic") arcticHit(year);
         else if (s.kind.startsWith("drought:")) hydroHit(s.kind.slice(8), 1.5, "Megadrought", year);
+        else if (s.kind.startsWith("find:")) findHit(s.kind.slice(5), year);
+        else if (s.kind.startsWith("lithium:")) findHit(s.kind.slice(8), year, true);
+        else if (s.kind.startsWith("boom:")) boomHit(s.kind.slice(5), year);
+        else if (s.kind.startsWith("breakthrough:")) breakthroughHit(s.kind.slice(13), year);
       }
-      /* ---- Stratatir event deck (random shocks) ---- */
+      /* ---- Stratatir event deck (random shocks, player-tunable) ---- */
       const roll = rng.next();
-      const hydroP = 0.15 * mods.hydroFreq;
+      const hydroP = deck.climate ? 0.15 * mods.hydroFreq * chaos : 0;
+      const energyP = deck.chokepoints ? 0.09 * mods.energyVol * chaos : 0;
+      const findP = 0.11 * chaos;
+      const leapP = 0.11 * chaos;
+      const crisisP = 0.07 * chaos;
       if (roll < hydroP) {
-        hydroHit(rng.pick(Object.keys(REGIONS)), 1, "Climate shock", year);
-      } else if (roll < hydroP + 0.09 * mods.energyVol) {
+        hydroHit(pickHydroRegion(), 1, "Climate shock", year);
+      } else if (roll < hydroP + energyP) {
         chokepointHit(rng.pick(["hormuz", "suez", "panama"] as const), 1, year);
-      } else if (roll < hydroP + 0.09 * mods.energyVol + 0.11) {
+      } else if (roll < hydroP + energyP + findP) {
         const cand: number[] = [];
         for (let i = 0; i < N; i++) if ((st[i].minerals > 45 || st[i].energy > 45) && st[i].gdp < 3.2) cand.push(i);
         if (cand.length) {
@@ -204,16 +299,16 @@ export function runSimulation(cfg: SimConfig): SimResult {
           st[i].growthMod += 1.3;
           events.push({ year, kind: "shock", text: `Major resource discovery in ${name(i)} — a boom begins and the region's maths changes overnight.` });
         }
-      } else if (roll < hydroP + 0.09 * mods.energyVol + 0.22) {
+      } else if (roll < hydroP + energyP + findP + leapP) {
         const byTech = [...Array(N).keys()].sort((a, b) => st[b].tech - st[a].tech).slice(0, 12);
         const i = rng.pick(byTech);
         st[i].tech = clamp(st[i].tech + rng.range(3.5, 6.5), 5, 100);
         st[i].growthMod += 0.55;
         events.push({ year, kind: "shock", text: `Tech breakthrough in ${name(i)} — a leap in capability the rest of the world must now answer.` });
-      } else if (roll < hydroP + 0.09 * mods.energyVol + 0.29) {
+      } else if (roll < hydroP + energyP + findP + leapP + crisisP) {
         for (let i = 0; i < N; i++) { st[i].growthMod -= 1.05; if (st[i].stab < 0.6) st[i].stab = clamp(st[i].stab - 0.02, 0.04, 0.97); }
         events.push({ year, kind: "shock", text: `Global financial crisis — credit seizes up and growth stalls almost everywhere at once.` });
-      } else if (roll < 0.97 && rng.chance(0.10)) {
+      } else if (roll < 0.97 && deck.rushes && rng.chance(0.10 * chaos)) {
         const rich: number[] = [];
         for (let i = 0; i < N; i++) if (st[i].minerals >= 72) rich.push(i);
         for (const i of rich) st[i].growthMod += 0.8;
@@ -222,7 +317,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
 
       /* ---- growth / tech / population / stability ---- */
       let pandemic = false;
-      if (rng.chance(0.028)) { pandemic = true; events.push({ year, kind: "crisis", text: `Pandemic year — borders close, output dips, and every capital is distracted at once.` }); }
+      if (deck.pandemics && rng.chance(0.028 * chaos)) { pandemic = true; events.push({ year, kind: "crisis", text: `Pandemic year — borders close, output dips, and every capital is distracted at once.` }); }
       for (let i = 0; i < N; i++) {
         const s = st[i];
         const base = BASELINE[COUNTRIES[i].code];

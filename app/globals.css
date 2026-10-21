@@ -266,3 +266,38 @@ body::after {
   background: rgba(201,150,58,0.2) !important;
   transform: scale(1.05);
 }
+
+/* ── GeoStory chart-room controls ─────────────────────────────── */
+:root { --nav-h: 70px; }
+@media (min-width: 640px) { :root { --nav-h: 68px; } }
+
+.gs-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #7a5e20, #2c4a73);
+  outline: none;
+  cursor: pointer;
+}
+.gs-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #f0c060;
+  border: 2px solid #0a1e38;
+  box-shadow: 0 0 0 1px rgba(240,192,96,0.65), 0 2px 8px rgba(0,0,0,0.55);
+  cursor: pointer;
+}
+.gs-range::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #f0c060;
+  border: 2px solid #0a1e38;
+  box-shadow: 0 0 0 1px rgba(240,192,96,0.65);
+  cursor: pointer;
+}
+.gs-range::-moz-range-track {
+  height: 4px; border-radius: 2px; background: #2c4a73;
+}
