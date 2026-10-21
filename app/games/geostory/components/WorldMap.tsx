@@ -17,7 +17,7 @@
  * viewBox to the protagonist's neighbourhood (and back) over ~0.45s.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { COUNTRIES, WORLD } from "../lib/data";
+import { COUNTRIES, WORLD, fmtGdp } from "../lib/data";
 import type { SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
 import { powerColor, shade, techColor, type LayerId } from "../lib/scenarios";
@@ -43,7 +43,7 @@ export const HEXES_BY_COUNTRY: { x: number; y: number }[][] = (() => {
   return arr;
 })();
 
-const COMPOUND_PATH: string[] = HEXES_BY_COUNTRY.map((hexes) => hexes.map((h) => hexPath(h.x, h.y)).join(""));
+export const COMPOUND_PATH: string[] = HEXES_BY_COUNTRY.map((hexes) => hexes.map((h) => hexPath(h.x, h.y)).join(""));
 
 interface Flip { country: number; year: number; from: number; to: number }
 
@@ -60,7 +60,7 @@ function computeFlips(result: SimResult): Flip[] {
 }
 
 /* ------------------------------------------------------------------- fills */
-function countryFill(result: SimResult, yearIdx: number, idx: number, layer: LayerId, leaderIdx: number): string {
+export function countryFill(result: SimResult, yearIdx: number, idx: number, layer: LayerId, leaderIdx: number): string {
   const snap = result.years[yearIdx][idx];
   if (layer === "tech") {
     return snap.c === idx ? techColor(snap.tech) : shade(techColor(snap.tech), 0.72);
@@ -124,13 +124,44 @@ interface Props {
   uid: string;
   framing?: Framing;
   frameIdx?: number | null;
+  /** when set (compare mode), countries whose controller differs from this
+      reference run at the current year get a pulsing cream outline */
+  diffResult?: SimResult | null;
 }
 
-export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null }: Props) {
+export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null }: Props) {
   const yearIdx = Math.max(0, Math.min(result.years.length - 1, Math.floor(yearFloat)));
   const flips = useMemo(() => computeFlips(result), [result]);
   const leaderCode = result.leaders[yearIdx]?.[0]?.code;
   const leaderIdx = leaderCode ? COUNTRIES.findIndex((c) => c.code === leaderCode) : -1;
+
+  /* compare-mode divergence: controller here vs controller in the reference sim */
+  const diffIdxs = useMemo(() => {
+    if (!diffResult) return null;
+    const out: number[] = [];
+    for (let i = 0; i < COUNTRIES.length; i++) {
+      if (diffResult.years[yearIdx][i].c !== result.years[yearIdx][i].c) out.push(i);
+    }
+    return out;
+  }, [diffResult, result, yearIdx]);
+
+  /* hover tooltip (desktop): name + the layer's headline value, no click needed.
+     Position is written straight to the DOM node so mousemove never re-renders
+     the 175 paths; React state only tracks WHICH country is hovered. */
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const tipRef = useRef<HTMLDivElement | null>(null);
+  const positionTip = (e: React.MouseEvent) => {
+    const tip = tipRef.current;
+    const host = (e.currentTarget as Element).closest("svg")?.parentElement;
+    if (!tip || !host) return;
+    const r = host.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    tip.style.left = `${x}px`;
+    tip.style.top = `${y}px`;
+    tip.style.transform = x > r.width * 0.68 ? "translate(calc(-100% - 14px), 14px)" : "translate(14px, 14px)";
+  };
+  const hoverSnap = hoverIdx !== null ? result.years[yearIdx][hoverIdx] : null;
 
   const activeFlips = flips.filter((f) => yearFloat >= f.year && yearFloat < f.year + 2);
 
@@ -165,7 +196,9 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
   const compassY = box.y + compassR * 2.3;
 
   return (
-    <svg viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} className="block h-auto w-full" role="application" aria-label="World simulation map">
+    <>
+    <svg viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} className="block h-auto w-full" role="application" aria-label="World simulation map"
+      onMouseMove={positionTip} onMouseLeave={() => setHoverIdx(null)}>
       <defs>
         <radialGradient id={`${uid}-ocean`} cx="50%" cy="42%" r="80%">
           <stop offset="0%" stopColor="#0d2f52" />
@@ -199,6 +232,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
           strokeWidth="0.4"
           style={{ cursor: "pointer", transition: "fill 0.45s ease" }}
           onClick={() => onSelect(idx)}
+          onMouseOver={() => setHoverIdx(idx)}
         >
           <title>{c.name}</title>
         </path>
@@ -233,6 +267,15 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         <path key={`b-${c.code}`} d={c.path} fill="none" stroke="rgba(240,220,170,0.09)" strokeWidth="0.5" pointerEvents="none" />
       ))}
 
+      {/* compare-mode divergence: countries ruled by a different power here
+          than in the reference sim get a pulsing cream dash */}
+      {diffIdxs && diffIdxs.map((idx) => (
+        <g key={`diff-${COUNTRIES[idx].code}`} pointerEvents="none">
+          <path d={COUNTRIES[idx].path} fill="rgba(240,192,96,0.10)" stroke="none" />
+          <path d={COUNTRIES[idx].path} fill="none" stroke="#f7f0e3" strokeWidth="1.7" strokeDasharray="6 3.5" className="gs-diff-outline" />
+        </g>
+      ))}
+
       {/* leading power glow outline — gold, the atlas's one loud colour */}
       {leaderIdx >= 0 && (
         <>
@@ -253,10 +296,42 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
 
       {/* generous tap targets for small countries */}
       {COUNTRIES.map((c, idx) => (
-        <circle key={`hit-${c.code}`} cx={c.cx} cy={c.cy} r="10" fill="transparent" style={{ cursor: "pointer" }} onClick={() => onSelect(idx)}>
+        <circle key={`hit-${c.code}`} cx={c.cx} cy={c.cy} r="10" fill="transparent" style={{ cursor: "pointer" }} onClick={() => onSelect(idx)} onMouseOver={() => setHoverIdx(idx)}>
           <title>{c.name}</title>
         </circle>
       ))}
     </svg>
+
+    {/* hover tooltip — follows the cursor, positioned imperatively */}
+    {hoverIdx !== null && hoverSnap && (
+      <div ref={tipRef} className="pointer-events-none absolute left-0 top-0 z-20 min-w-[150px] rounded-md border px-2.5 py-1.5"
+        style={{ background: "rgba(4,16,30,0.94)", borderColor: "rgba(240,192,96,0.5)", boxShadow: "0 8px 22px rgba(0,0,0,0.55)" }}
+        aria-hidden>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: powerColor(COUNTRIES[hoverIdx].code) }} />
+          <span className="text-xs font-semibold" style={{ color: "#f7f0e3" }}>{COUNTRIES[hoverIdx].name}</span>
+        </div>
+        <div className="mt-0.5 text-[11px] leading-snug" style={{ color: "#cdbfa5" }}>
+          {layer === "territory" && (
+            hoverSnap.c === hoverIdx
+              ? <>Sovereign · power <strong style={{ color: "#f0c060" }}>{(hoverSnap.bloc > 0 ? hoverSnap.bloc : hoverSnap.pow).toFixed(0)}</strong></>
+              : <>Held by <strong style={{ color: powerColor(COUNTRIES[hoverSnap.c].code) }}>{COUNTRIES[hoverSnap.c].name}</strong></>
+          )}
+          {layer === "influence" && (
+            hoverSnap.i === hoverIdx
+              ? <>Holds its own orbit</>
+              : <>In the orbit of <strong style={{ color: powerColor(COUNTRIES[hoverSnap.i].code) }}>{COUNTRIES[hoverSnap.i].name}</strong></>
+          )}
+          {layer === "economic" && (
+            hoverSnap.e === hoverIdx
+              ? <>Dominates its own market</>
+              : <>Market ruled by <strong style={{ color: powerColor(COUNTRIES[hoverSnap.e].code) }}>{COUNTRIES[hoverSnap.e].name}</strong></>
+          )}
+          {layer === "tech" && <>Technology <strong style={{ color: "#f0c060" }}>{hoverSnap.tech.toFixed(0)}</strong> / 100</>}
+          <span style={{ color: "#93a7bd" }}> · GDP {fmtGdp(hoverSnap.gdp)}</span>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CODE_IDX, COUNTRIES, START_YEAR, fmtGdp, fmtPop } from "../lib/data";
-import { DEFAULT_DECK, ZERO_BOOSTS, runSimulation, type Boosts, type DeckControls, type SimConfig, type SimEvent } from "../lib/engine";
+import { DEFAULT_DECK, ZERO_BOOSTS, type Boosts, type DeckControls, type SimConfig, type SimEvent, type SimResult } from "../lib/engine";
 import { SCENARIOS, getScenario, powerColor, type LayerId } from "../lib/scenarios";
+import ExportPanel from "./ExportPanel";
+import MapLegend from "./MapLegend";
 import WorldMap, { type Framing } from "./WorldMap";
+import { copyText } from "./exportKit";
 
 /* aged-atlas event colours — muted enamel, no neon */
 const KIND_STYLE: Record<SimEvent["kind"], string> = {
@@ -98,6 +101,11 @@ function BoostSliders({ boosts, onSet }: { boosts: Boosts; onSet: (key: keyof Bo
 interface Props {
   cfg: SimConfig;
   onCfg: (cfg: SimConfig) => void;
+  /** the panel's full deterministic history, computed by SimulatorApp so
+      compare mode can diff panels against each other */
+  result: SimResult;
+  /** reference run for the divergence overlay (the first panel), if enabled */
+  diffResult?: SimResult | null;
   yearFloat: number;
   layer: LayerId;
   selectedIdx: number | null;
@@ -107,9 +115,9 @@ interface Props {
   onDuplicate?: () => void;
 }
 
-export default function SimPanel({ cfg, onCfg, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate }: Props) {
-  const result = useMemo(() => runSimulation(cfg), [cfg]);
+export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate }: Props) {
   const [seedDraft, setSeedDraft] = useState(cfg.seed);
+  const [seedCopied, setSeedCopied] = useState(false);
   useEffect(() => setSeedDraft(cfg.seed), [cfg.seed]);
   const yearIdx = Math.max(0, Math.min(result.years.length - 1, Math.floor(yearFloat)));
   const calYear = START_YEAR + yearIdx;
@@ -218,12 +226,21 @@ export default function SimPanel({ cfg, onCfg, yearFloat, layer, selectedIdx, on
           aria-label="Random seed"
         />
         <button onClick={() => onCfg({ ...cfg, seed: seedDraft })} className="rounded px-2.5 py-1 text-[11px] font-bold tracking-wider" style={{ background: GOLD_DEEP, color: "#081426" }}>RUN</button>
+        <button
+          onClick={async () => { if (await copyText(cfg.seed)) { setSeedCopied(true); setTimeout(() => setSeedCopied(false), 1600); } }}
+          className="rounded border px-2 py-1 text-[11px] tracking-wide hover:opacity-80"
+          style={{ borderColor: "rgba(201,150,58,0.35)", color: "#cbb27a" }}
+          aria-label={`Copy seed ${cfg.seed} to the clipboard`}
+        >
+          {seedCopied ? "✓ COPIED" : "⧉ COPY SEED"}
+        </button>
         <span className="text-[11px]" style={{ color: FAINT }}>same seed + settings = same history</span>
       </div>
 
       {/* map + framing toggle */}
       <div className="relative px-2 pt-2">
-        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} />
+        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} />
+        <MapLegend layer={layer} />
         <button
           onClick={() => setFraming(framing === "region" ? "world" : "region")}
           className="absolute left-3.5 top-3.5 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm"
@@ -423,6 +440,11 @@ export default function SimPanel({ cfg, onCfg, yearFloat, layer, selectedIdx, on
             <p className="pt-1 text-[11px]" style={{ color: FAINT }}>How often the world misbehaves. ×0 silences the random deck entirely (scripted scenario events still fire).</p>
           </div>
         )}
+      </div>
+
+      {/* share kit — exports derive from this panel's finished history */}
+      <div className="mx-4 mb-4 border-t pt-3" style={{ borderColor: "rgba(201,150,58,0.22)" }}>
+        <ExportPanel cfg={cfg} result={result} />
       </div>
     </section>
   );

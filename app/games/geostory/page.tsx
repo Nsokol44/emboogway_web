@@ -89,12 +89,17 @@ export default function Geostory() {
               Scenario thinking by Stratatir ↗
             </a>
           </div>
-          <p className="mx-auto mt-5 max-w-2xl text-xs leading-relaxed" style={{ color: MUTED }}>
-            Under the hood: GCEIA-style receptivity decides where influence lands; market-access gravity lets
-            big economies dominate neighbours before borders ever move; and a Stratatir shock deck — Hormuz and
-            Malacca closures, hydroclimate stress, lithium rushes, Arctic openings — keeps reshuffling the century.
-            Every run is deterministic: same seed, same history.
-          </p>
+          <details className="mx-auto mt-5 max-w-2xl [&_summary::-webkit-details-marker]:hidden">
+            <summary className="cursor-pointer list-none text-center font-display text-xs tracking-[0.3em] hover:opacity-80" style={{ color: GOLD }}>
+              HOW IT WORKS ▾
+            </summary>
+            <p className="mt-3 text-xs leading-relaxed" style={{ color: MUTED }}>
+              Under the hood: GCEIA-style receptivity decides where influence lands; market-access gravity lets
+              big economies dominate neighbours before borders ever move; and a Stratatir shock deck — Hormuz and
+              Malacca closures, hydroclimate stress, lithium rushes, Arctic openings — keeps reshuffling the century.
+              Every run is deterministic: same seed, same history.
+            </p>
+          </details>
           <div className="mx-auto mt-6 max-w-xl">
             <div style={{ borderTop: `1px solid ${GOLD_DEEP}` }} />
             <div className="mt-[3px]" style={{ borderTop: "1px solid rgba(201,150,58,0.35)" }} />

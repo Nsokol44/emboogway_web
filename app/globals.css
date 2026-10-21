@@ -301,3 +301,20 @@ body::after {
 .gs-range::-moz-range-track {
   height: 4px; border-radius: 2px; background: #2c4a73;
 }
+
+/* compare-mode divergence outline: a slow cream pulse, in-identity */
+@keyframes gs-diff-pulse {
+  0%, 100% { stroke-opacity: 0.95; }
+  50% { stroke-opacity: 0.3; }
+}
+.gs-diff-outline { animation: gs-diff-pulse 1.6s ease-in-out infinite; }
+
+/* visible gold focus for every interactive element in the simulator */
+.geostory-ui button:focus-visible,
+.geostory-ui input:focus-visible,
+.geostory-ui select:focus-visible,
+.geostory-ui a:focus-visible,
+.geostory-ui summary:focus-visible {
+  outline: 2px solid #f0c060;
+  outline-offset: 2px;
+}
