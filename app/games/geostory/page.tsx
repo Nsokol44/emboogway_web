@@ -5,6 +5,18 @@ import SimulatorApp from "./components/SimulatorApp";
 export const metadata: Metadata = {
   title: "GeoStory Simulator — What If a New World Power Rose?",
   description: "The GeoStory Simulator: an Emboogway × Stratatir hex-map toy model of 21st-century geopolitics. Pick a country, bend the century, and watch territory, influence and economic dominance shift year by year, 2026–2100.",
+  openGraph: {
+    type: "website",
+    url: "https://www.emboogway.com/games/geostory",
+    siteName: "Emboogway",
+    title: "GeoStory Simulator | Emboogway × Stratatir",
+    description: "Run the century on a hex map of 175 countries — territory, influence, markets and technology, 2026–2100. Place-focused scenarios from the Arctic to the Sahel. A toy model for entertainment, not a forecast.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "GeoStory Simulator | Emboogway × Stratatir",
+    description: "Run the century on a hex map of 175 countries — territory, influence, markets and technology, 2026–2100. A toy model for entertainment, not a forecast.",
+  },
 };
 
 /** engraved compass rose for the masthead lockup */
