@@ -42,3 +42,7 @@ next-env.d.ts
 
 # Waitlist stopgap storage (local file backend)
 data/
+
+# GeoStory simulator data (generated, but required at build time)
+!app/games/geostory/lib/data/
+!app/games/geostory/lib/data/*.json
