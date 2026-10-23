@@ -476,8 +476,6 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           {onRemove && <button onClick={onRemove} className="rounded border px-2 py-1 text-[11px] tracking-wide hover:opacity-80" style={{ borderColor: "rgba(209,96,61,0.45)", color: "#e09a83" }}>REMOVE</button>}
         </span>
       </div>
-      <p className="line-clamp-2 px-4 pt-1.5 text-[11px] leading-snug sm:line-clamp-none" style={{ color: FAINT }}>{scenario.desc}</p>
-
       {/* seed row */}
       <div className="flex flex-wrap items-center gap-2 px-4 pt-2.5">
         <label className="text-[11px] tracking-[0.18em]" style={{ color: MUTED }}>SEED</label>
@@ -713,7 +711,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               <ul className="mt-1.5 space-y-1">
                 {whyLines.map((l) => (
                   <li key={l.head} className="flex gap-2 text-[11px] leading-snug" style={{ color: PARCH }}>
-                    <span className="w-[88px] shrink-0 font-display text-[10px] leading-[1.5] tracking-[0.14em]" style={{ color: GOLD }}>{l.head}</span>
+                    <span className="w-[106px] shrink-0 font-display text-[10px] leading-[1.5] tracking-[0.14em]" style={{ color: GOLD }}>{l.head}</span>
                     <span>{l.body}</span>
                   </li>
                 ))}
