@@ -14,11 +14,13 @@
  * every hex a lit-from-above feel instead of a flat fill.
  */
 import terrainJson from "./data/terrain.json";
+import waterwaysJson from "./data/waterways.json";
 import { WORLD } from "./data";
 
 export type TerrainName =
   | "grass" | "plains" | "steppe" | "desert" | "forest"
-  | "taiga" | "jungle" | "tundra" | "ice" | "mountain";
+  | "taiga" | "jungle" | "tundra" | "ice" | "mountain"
+  | "water" | "canal";
 
 const LEGEND = terrainJson.legend as Record<string, TerrainName>;
 export const TERRAIN_BY_HEX: TerrainName[] = (() => {
@@ -28,13 +30,118 @@ export const TERRAIN_BY_HEX: TerrainName[] = (() => {
   return out;
 })();
 
-/** each country's most common terrain — for dossier colour in Terrain view */
+/* ------------------------------------------------------------- waterways
+ * The waterway pass (scripts/build-waterways.mjs, list in
+ * scripts/WATERWAYS.md): 57 coastal hexes reclassified as open water ("o")
+ * or canal ("c") so the seas, straits and canals read on the map. A
+ * waterway hex keeps its country — it is geography cut through the land,
+ * not a change of ownership. */
+interface WaterwayHexRec { waterway: string; code: "o" | "c"; was: string }
+const WATERWAY_RECS = (waterwaysJson.hexes ?? {}) as Record<string, WaterwayHexRec>;
+
+/** display names for the waterway ids in data/waterways.json */
+export const WATERWAY_NAME: Record<string, string> = {
+  "suez-canal": "Suez Canal",
+  "panama-canal": "Panama Canal",
+  "gibraltar": "Strait of Gibraltar",
+  "bosphorus-dardanelles": "Bosphorus & Dardanelles",
+  "aegean": "Aegean Sea",
+  "messina": "Strait of Messina",
+  "sicily-channel": "Sicily Channel",
+  "adriatic": "Adriatic Sea",
+  "ionian-otranto": "Strait of Otranto",
+  "red-sea": "Red Sea",
+  "hormuz-persian-gulf": "Strait of Hormuz",
+  "malacca": "Strait of Malacca",
+  "danish-straits": "Danish Straits",
+  "english-channel": "English Channel",
+  "irish-sea": "Irish Sea",
+  "taiwan-strait": "Taiwan Strait",
+  "florida-strait": "Straits of Florida",
+  "torres-strait": "Torres Strait",
+  "bass-strait": "Bass Strait",
+  "sunda-strait": "Sunda Strait",
+  "bohai": "Bohai Sea",
+  "cook-strait": "Cook Strait",
+};
+
+/** canal flow direction per canal hex (degrees, screen space) — the lock
+    glyphs are drawn across the flow. Suez runs SSE down the isthmus;
+    Panama runs SSW from the Caribbean to the Gulf of Panama. */
+export const CANAL_ANGLE: Record<number, number> = {
+  1832: 60, 1892: 60, 2367: 120, 2407: 120,
+};
+
+export interface WaterwayHex {
+  i: number; x: number; y: number; ci: number;
+  code: "o" | "c"; id: string; name: string;
+  /** SVG path for the hex (same geometry as WorldMap's hexPath) */
+  d: string;
+  /** canal lock-line segments [x1, y1, x2, y2] — canal hexes only */
+  locks: [number, number, number, number][];
+}
+
+function hexD(x: number, y: number, r: number): string {
+  let d = "";
+  for (let k = 0; k < 6; k++) {
+    const a = ((60 * k - 30) * Math.PI) / 180;
+    d += `${k === 0 ? "M" : "L"}${(x + r * Math.cos(a)).toFixed(1)} ${(y + r * Math.sin(a)).toFixed(1)}`;
+  }
+  return d + "Z";
+}
+
+function lockSegments(x: number, y: number, flowDeg: number): [number, number, number, number][] {
+  const a = (flowDeg * Math.PI) / 180;
+  const fx = Math.cos(a), fy = Math.sin(a);
+  const px = -fy, py = fx;
+  const half = WORLD.hexR * 0.8;
+  return [-0.85, 0.85].map((off) => {
+    const cx = x + fx * off, cy = y + fy * off;
+    return [cx - px * half, cy - py * half, cx + px * half, cy + py * half] as [number, number, number, number];
+  });
+}
+
+/** every waterway hex with its render geometry — shared by the SVG map
+    overlay and the export kit so the waterways read identically in both */
+export const WATERWAY_HEXES: WaterwayHex[] = Object.entries(WATERWAY_RECS)
+  .map(([idx, rec]) => {
+    const i = Number(idx);
+    const [x, y, ci] = WORLD.hexes[i];
+    return {
+      i, x, y, ci,
+      code: rec.code,
+      id: rec.waterway,
+      name: WATERWAY_NAME[rec.waterway] ?? rec.waterway,
+      d: hexD(x, y, WORLD.hexR),
+      locks: rec.code === "c" ? lockSegments(x, y, CANAL_ANGLE[i] ?? 60) : [],
+    };
+  })
+  .sort((a, b) => a.i - b.i);
+
+/** country index → its waterway display names (canals first) — tooltip copy */
+export const COUNTRY_WATERWAYS: Map<number, string[]> = (() => {
+  const m = new Map<number, string[]>();
+  for (const h of WATERWAY_HEXES) {
+    const arr = m.get(h.ci) ?? [];
+    if (!arr.includes(h.name)) arr.push(h.name);
+    m.set(h.ci, arr);
+  }
+  for (const arr of m.values()) {
+    arr.sort((a, b) => (a.includes("Canal") ? 0 : 1) - (b.includes("Canal") ? 0 : 1));
+  }
+  return m;
+})();
+
+/** each country's most common terrain — for dossier colour in Terrain view.
+    Waterway hexes don't count: a country keeps its land identity even
+    where a strait or canal cuts through it. */
 export const DOMINANT_TERRAIN: TerrainName[] = (() => {
   const counts = new Map<number, Map<TerrainName, number>>();
   WORLD.hexes.forEach(([, , ci], hi) => {
+    const t = TERRAIN_BY_HEX[hi];
+    if (t === "water" || t === "canal") return;
     let m = counts.get(ci);
     if (!m) { m = new Map(); counts.set(ci, m); }
-    const t = TERRAIN_BY_HEX[hi];
     m.set(t, (m.get(t) ?? 0) + 1);
   });
   return WORLD.countries.map((_, ci) => {
@@ -49,7 +156,7 @@ export const DOMINANT_TERRAIN: TerrainName[] = (() => {
 export const TERRAIN_LABEL: Record<TerrainName, string> = {
   grass: "Grassland", plains: "Plains", steppe: "Steppe", desert: "Desert",
   forest: "Forest", taiga: "Taiga", jungle: "Jungle", tundra: "Tundra",
-  ice: "Ice", mountain: "Mountains",
+  ice: "Ice", mountain: "Mountains", water: "Open water", canal: "Canal",
 };
 
 /** [deep, base, light, highlight] per terrain */
@@ -64,6 +171,11 @@ export const TERRAIN_PALETTE: Record<TerrainName, [string, string, string, strin
   tundra:  ["#8b8e80", "#a5a89c", "#b9bcb0", "#cfd1c2"],
   ice:     ["#b4c5d6", "#dfe9f0", "#ecf3f8", "#ffffff"],
   mountain:["#5b534a", "#7d7468", "#9a9182", "#e6edf4"],
+  /* waterway hexes wear the shelf's own tones — deep step, shelf base,
+     a lighter swell, a pale crest — so a widened sea is continuous with
+     the coastal shelf drawn around every shore */
+  water:   ["#26597f", "#2f6d99", "#478cb3", "#9fd0ee"],
+  canal:   ["#26597f", "#2f6d99", "#478cb3", "#9fd0ee"],
 };
 
 const SHELF = "#2f6d99";      // shallow-water shelf around coasts
@@ -78,6 +190,12 @@ export const TERRAIN_SWATCHES: { name: string; color: string }[] = [
   { name: "Desert", color: TERRAIN_PALETTE.desert[1] },
   { name: "Mountains", color: TERRAIN_PALETTE.mountain[1] },
   { name: "Tundra & ice", color: TERRAIN_PALETTE.ice[1] },
+];
+
+/** waterway swatches for the terrain legend — seas/straits and canals */
+export const WATERWAY_SWATCHES: { name: string; color: string; canal?: boolean }[] = [
+  { name: "Waterway", color: TERRAIN_PALETTE.water[1] },
+  { name: "Canal", color: TERRAIN_PALETTE.canal[1], canal: true },
 ];
 
 /* ------------------------------------------------------------ seeded rng */
@@ -170,6 +288,26 @@ function peak(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, pa
   ctx.lineTo(x + s * 0.05, y - s * 0.34);
   ctx.closePath();
   ctx.fill();
+}
+
+/** a canal's lock gates: two pale lines drawn across the flow, the way
+    charts mark a canal cut through land */
+function lockLines(ctx: CanvasRenderingContext2D, x: number, y: number, flowDeg: number) {
+  const a = (flowDeg * Math.PI) / 180;
+  const fx = Math.cos(a), fy = Math.sin(a);
+  const px = -fy, py = fx;
+  const half = R * 0.8;
+  ctx.strokeStyle = "#e8f2fa";
+  ctx.globalAlpha = 0.92;
+  ctx.lineWidth = 0.5;
+  for (const off of [-0.85, 0.85]) {
+    const cx = x + fx * off, cy = y + fy * off;
+    ctx.beginPath();
+    ctx.moveTo(cx - px * half, cy - py * half);
+    ctx.lineTo(cx + px * half, cy + py * half);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawTerrainPlate(ctx: CanvasRenderingContext2D) {
@@ -289,6 +427,21 @@ function drawTerrainPlate(ctx: CanvasRenderingContext2D) {
     } else if (t === "tundra") {
       speck("#eef1ea", 9, 0.75); // snow patches
       speck(deep, 6, 0.5);       // moss and stone
+    } else if (t === "water" || t === "canal") {
+      /* open water: two quiet wave dashes over the dappled shelf tones;
+         a canal adds its paired lock lines across the flow */
+      ctx.strokeStyle = hi;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 0.4;
+      for (let k = 0; k < 2; k++) {
+        const wx = x + (rnd() - 0.5) * 3.2, wy = y + (rnd() - 0.5) * 3.0;
+        ctx.beginPath();
+        ctx.moveTo(wx - 0.8, wy);
+        ctx.lineTo(wx + 0.8, wy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      if (t === "canal") lockLines(ctx, x, y, CANAL_ANGLE[i] ?? 60);
     }
     ctx.restore();
   }

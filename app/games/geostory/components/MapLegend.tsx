@@ -6,19 +6,21 @@
  * caps, enamel swatches, one hairline rule.
  */
 import { powerColor, shade, techColor, LAYERS, type LayerId } from "../lib/scenarios";
-import { TERRAIN_SWATCHES } from "../lib/terrain";
+import { TERRAIN_SWATCHES, WATERWAY_SWATCHES } from "../lib/terrain";
 
 const MUTED = "#93a7bd";
 const FAINT = "#5f748c";
 const GOLD = "#f0c060";
 
-function Swatch({ bg, outline, label }: { bg?: string; outline?: boolean; label: string }) {
+function Swatch({ bg, outline, label, striped }: { bg?: string; outline?: boolean; label: string; striped?: boolean }) {
   return (
     <span className="flex items-center gap-1.5">
       <span
         className="inline-block h-3 w-3 shrink-0 rounded-[3px]"
         style={{
-          background: bg ?? "transparent",
+          background: striped
+            ? `repeating-linear-gradient(90deg, ${bg} 0 4px, #e8f2fa 4px 5px, ${bg} 5px 9px)`
+            : (bg ?? "transparent"),
           border: outline ? `1.5px solid ${GOLD}` : "1px solid rgba(147,167,189,0.35)",
         }}
       />
@@ -67,6 +69,9 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
         <>
           {TERRAIN_SWATCHES.map((s) => (
             <Swatch key={s.name} bg={s.color} label={s.name} />
+          ))}
+          {WATERWAY_SWATCHES.map((s) => (
+            <Swatch key={s.name} bg={s.color} label={s.name} striped={s.canal} />
           ))}
           <span style={{ color: FAINT }}>the land itself, drawn as pixel art — switch to any other layer to lay power back over the ground</span>
         </>

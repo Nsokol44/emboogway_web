@@ -21,7 +21,7 @@ import { COUNTRIES, WORLD, fmtGdp } from "../lib/data";
 import type { SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
 import { powerColor, shade, techColor, type LayerId } from "../lib/scenarios";
-import { DOMINANT_TERRAIN, TERRAIN_LABEL, TERRAIN_PALETTE, getTerrainPlateURL } from "../lib/terrain";
+import { COUNTRY_WATERWAYS, DOMINANT_TERRAIN, TERRAIN_LABEL, TERRAIN_PALETTE, WATERWAY_HEXES, getTerrainPlateURL } from "../lib/terrain";
 import WeatherOverlay from "./WeatherOverlay";
 
 /* ------------------------------------------------------------ hex geometry */
@@ -299,6 +299,29 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         <path key={`b-${c.code}`} d={c.path} fill="none" stroke="rgba(240,220,170,0.09)" strokeWidth="0.5" pointerEvents="none" />
       ))}
 
+      {/* waterways — geography, not data: the widened seas, straits and
+          canals are drawn ABOVE every wash as water insets, the way real
+          maps cut water through land. A canal hex keeps a hairline border
+          in its owner's colour so Egypt/Panama ownership still reads.
+          Shown only with Terrain Art on — off restores the flat atlas. */}
+      {terrainArt && (
+        <g pointerEvents="none">
+          {WATERWAY_HEXES.map((h) => (
+            <g key={`ww-${h.i}`}>
+              <path d={h.d} fill="#2f6d99" stroke="rgba(3,10,20,0.45)" strokeWidth="0.4" />
+              <path d={h.d} fill="#478cb3" opacity="0.38" stroke="none"
+                transform={`translate(${h.x} ${h.y - 0.5}) scale(0.7) translate(${-h.x} ${-h.y})`} />
+              {h.code === "c" && h.locks.map(([x1, y1, x2, y2], li) => (
+                <line key={li} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#e8f2fa" strokeWidth="0.5" opacity="0.92" />
+              ))}
+              {h.code === "c" && (
+                <path d={h.d} fill="none" stroke={powerColor(COUNTRIES[h.ci].code)} strokeWidth="0.8" opacity="0.9" />
+              )}
+            </g>
+          ))}
+        </g>
+      )}
+
       {/* compare-mode divergence: countries ruled by a different power here
           than in the reference sim get a pulsing cream dash */}
       {diffIdxs && diffIdxs.map((idx) => (
@@ -363,7 +386,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
               : <>Market ruled by <strong style={{ color: powerColor(COUNTRIES[hoverSnap.e].code) }}>{COUNTRIES[hoverSnap.e].name}</strong></>
           )}
           {layer === "tech" && <>Technology <strong style={{ color: "#f0c060" }}>{hoverSnap.tech.toFixed(0)}</strong> / 100</>}
-          {layer === "terrain" && <>Terrain: <strong style={{ color: "#f0c060" }}>{TERRAIN_LABEL[DOMINANT_TERRAIN[hoverIdx]]}</strong> heartland</>}
+          {layer === "terrain" && <>Terrain: <strong style={{ color: "#f0c060" }}>{TERRAIN_LABEL[DOMINANT_TERRAIN[hoverIdx]]}</strong> heartland{(COUNTRY_WATERWAYS.get(hoverIdx) ?? []).length > 0 && <> · <strong style={{ color: "#9fd0ee" }}>{(COUNTRY_WATERWAYS.get(hoverIdx) ?? []).join(" · ")}</strong></>}</>}
           <span style={{ color: "#93a7bd" }}> · GDP {fmtGdp(hoverSnap.gdp)}</span>
         </div>
       </div>

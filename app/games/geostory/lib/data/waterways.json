@@ -1,0 +1,290 @@
+{
+ "version": 1,
+ "hexes": {
+  "919": {
+   "waterway": "danish-straits",
+   "code": "o",
+   "was": "f"
+  },
+  "920": {
+   "waterway": "danish-straits",
+   "code": "o",
+   "was": "f"
+  },
+  "994": {
+   "waterway": "irish-sea",
+   "code": "o",
+   "was": "f"
+  },
+  "1072": {
+   "waterway": "irish-sea",
+   "code": "o",
+   "was": "f"
+  },
+  "1074": {
+   "waterway": "english-channel",
+   "code": "o",
+   "was": "f"
+  },
+  "1148": {
+   "waterway": "english-channel",
+   "code": "o",
+   "was": "f"
+  },
+  "1149": {
+   "waterway": "english-channel",
+   "code": "o",
+   "was": "f"
+  },
+  "1224": {
+   "waterway": "english-channel",
+   "code": "o",
+   "was": "f"
+  },
+  "1446": {
+   "waterway": "adriatic",
+   "code": "o",
+   "was": "g"
+  },
+  "1516": {
+   "waterway": "adriatic",
+   "code": "o",
+   "was": "s"
+  },
+  "1520": {
+   "waterway": "bosphorus-dardanelles",
+   "code": "o",
+   "was": "g"
+  },
+  "1521": {
+   "waterway": "bosphorus-dardanelles",
+   "code": "o",
+   "was": "g"
+  },
+  "1579": {
+   "waterway": "messina",
+   "code": "o",
+   "was": "g"
+  },
+  "1581": {
+   "waterway": "ionian-otranto",
+   "code": "o",
+   "was": "g"
+  },
+  "1583": {
+   "waterway": "aegean",
+   "code": "o",
+   "was": "g"
+  },
+  "1614": {
+   "waterway": "bohai",
+   "code": "o",
+   "was": "d"
+  },
+  "1615": {
+   "waterway": "bohai",
+   "code": "o",
+   "was": "d"
+  },
+  "1640": {
+   "waterway": "sicily-channel",
+   "code": "o",
+   "was": "g"
+  },
+  "1641": {
+   "waterway": "sicily-channel",
+   "code": "o",
+   "was": "m"
+  },
+  "1644": {
+   "waterway": "aegean",
+   "code": "o",
+   "was": "m"
+  },
+  "1700": {
+   "waterway": "gibraltar",
+   "code": "o",
+   "was": "m"
+  },
+  "1701": {
+   "waterway": "gibraltar",
+   "code": "o",
+   "was": "m"
+  },
+  "1832": {
+   "waterway": "suez-canal",
+   "code": "c",
+   "was": "m"
+  },
+  "1839": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "1892": {
+   "waterway": "suez-canal",
+   "code": "c",
+   "was": "d"
+  },
+  "1899": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "1950": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "1957": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "1958": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "1959": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "1989": {
+   "waterway": "florida-strait",
+   "code": "o",
+   "was": "p"
+  },
+  "2009": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2018": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "2019": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "2041": {
+   "waterway": "taiwan-strait",
+   "code": "o",
+   "was": "p"
+  },
+  "2069": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2078": {
+   "waterway": "hormuz-persian-gulf",
+   "code": "o",
+   "was": "d"
+  },
+  "2125": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2179": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2226": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2270": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2309": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2310": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2311": {
+   "waterway": "red-sea",
+   "code": "o",
+   "was": "d"
+  },
+  "2367": {
+   "waterway": "panama-canal",
+   "code": "c",
+   "was": "j"
+  },
+  "2407": {
+   "waterway": "panama-canal",
+   "code": "c",
+   "was": "j"
+  },
+  "2478": {
+   "waterway": "malacca",
+   "code": "o",
+   "was": "j"
+  },
+  "2479": {
+   "waterway": "malacca",
+   "code": "o",
+   "was": "j"
+  },
+  "2511": {
+   "waterway": "malacca",
+   "code": "o",
+   "was": "j"
+  },
+  "2543": {
+   "waterway": "malacca",
+   "code": "o",
+   "was": "j"
+  },
+  "2666": {
+   "waterway": "sunda-strait",
+   "code": "o",
+   "was": "j"
+  },
+  "2780": {
+   "waterway": "torres-strait",
+   "code": "o",
+   "was": "g"
+  },
+  "3185": {
+   "waterway": "bass-strait",
+   "code": "o",
+   "was": "g"
+  },
+  "3186": {
+   "waterway": "bass-strait",
+   "code": "o",
+   "was": "g"
+  },
+  "3187": {
+   "waterway": "bass-strait",
+   "code": "o",
+   "was": "g"
+  },
+  "3199": {
+   "waterway": "cook-strait",
+   "code": "o",
+   "was": "g"
+  },
+  "3200": {
+   "waterway": "cook-strait",
+   "code": "o",
+   "was": "m"
+  }
+ }
+}

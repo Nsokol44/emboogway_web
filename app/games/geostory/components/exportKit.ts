@@ -12,6 +12,7 @@ import { COUNTRIES, END_YEAR, START_YEAR, WORLD, fmtGdp } from "../lib/data";
 import type { SimConfig, SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
 import { getScenario, powerColor } from "../lib/scenarios";
+import { WATERWAY_HEXES } from "../lib/terrain";
 import { COMPOUND_PATH, HEXES_BY_COUNTRY, countryFill } from "./WorldMap";
 
 export const GOLD = "#f0c060";
@@ -91,13 +92,15 @@ let compoundCache: Path2D[] | null = null;
 let borderCache: Path2D[] | null = null;
 let graticuleCache: Path2D | null = null;
 let outlineCache: Path2D | null = null;
+let waterwayCache: Path2D[] | null = null;
 
 function paths() {
   if (!compoundCache) compoundCache = COMPOUND_PATH.map((d) => new Path2D(d));
   if (!borderCache) borderCache = COUNTRIES.map((c) => new Path2D(c.path));
   if (!graticuleCache) graticuleCache = new Path2D(GRATICULE_PATH);
   if (!outlineCache) outlineCache = new Path2D(GRATICULE_OUTLINE);
-  return { compound: compoundCache, borders: borderCache, grat: graticuleCache, outline: outlineCache };
+  if (!waterwayCache) waterwayCache = WATERWAY_HEXES.map((h) => new Path2D(h.d));
+  return { compound: compoundCache, borders: borderCache, grat: graticuleCache, outline: outlineCache, waterways: waterwayCache };
 }
 
 function drawCompass(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
@@ -174,6 +177,31 @@ export function drawMapPlate(
     ctx.lineWidth = 0.4;
     ctx.stroke(p.compound[i]);
   }
+  /* waterways cut through the fills as water insets, as on the page map;
+     canal hexes get their lock lines and the owner's hairline border */
+  WATERWAY_HEXES.forEach((h, wi) => {
+    const hp = p.waterways[wi];
+    ctx.fillStyle = "#2f6d99";
+    ctx.fill(hp);
+    ctx.strokeStyle = "rgba(3,10,20,0.45)";
+    ctx.lineWidth = 0.4;
+    ctx.stroke(hp);
+    if (h.code === "c") {
+      ctx.strokeStyle = "rgba(232,242,250,0.92)";
+      ctx.lineWidth = 0.5;
+      for (const [x1, y1, x2, y2] of h.locks) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = powerColor(COUNTRIES[h.ci].code);
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 0.8;
+      ctx.stroke(hp);
+      ctx.globalAlpha = 1;
+    }
+  });
   ctx.strokeStyle = "rgba(240,220,170,0.10)";
   ctx.lineWidth = 0.5;
   for (const b of p.borders) ctx.stroke(b);
