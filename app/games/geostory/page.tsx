@@ -94,10 +94,9 @@ export default function Geostory() {
               HOW IT WORKS ▾
             </summary>
             <p className="mt-3 text-xs leading-relaxed" style={{ color: MUTED }}>
-              Under the hood: GCEIA-style receptivity decides where influence lands; market-access gravity lets
-              big economies dominate neighbours before borders ever move; and a Stratatir shock deck — Hormuz and
-              Malacca closures, hydroclimate stress, lithium rushes, Arctic openings — keeps reshuffling the century.
-              Every run is deterministic: same seed, same history.
+              Receptivity decides where influence lands; market gravity lets big economies dominate neighbours
+              before borders move; a shock deck of strait closures, droughts and rushes keeps reshuffling the
+              century. Deterministic: same seed, same history. The full model card is one tap inside the sim — ⓘ THE MODEL.
             </p>
           </details>
           <div className="mx-auto mt-6 max-w-xl">

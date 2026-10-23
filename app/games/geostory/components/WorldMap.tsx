@@ -133,13 +133,29 @@ interface Props {
   terrainArt?: boolean;
   /** ambient weather overlay — the sky (default on) */
   weather?: boolean;
+  /** P1b — when set, draw influence-flow arcs into this power from the
+      countries it pulls hardest (thickness ∝ the engine's gravity value) */
+  flowIdx?: number | null;
 }
 
-export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null, terrainArt = true, weather = true }: Props) {
+export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null, terrainArt = true, weather = true, flowIdx = null }: Props) {
   const yearIdx = Math.max(0, Math.min(result.years.length - 1, Math.floor(yearFloat)));
   const flips = useMemo(() => computeFlips(result), [result]);
   const leaderCode = result.leaders[yearIdx]?.[0]?.code;
   const leaderIdx = leaderCode ? COUNTRIES.findIndex((c) => c.code === leaderCode) : -1;
+
+  /* P1b influence flow: the selected power's strongest inbound pulls */
+  const flowArcs = useMemo(() => {
+    if (flowIdx === null || flowIdx < 0) return [];
+    const row = result.attrib[yearIdx];
+    if (!row) return [];
+    const inbound: { c: number; iv: number }[] = [];
+    for (let c = 0; c < COUNTRIES.length; c++) {
+      if (c !== flowIdx && row[c].i === flowIdx) inbound.push({ c, iv: row[c].iv });
+    }
+    inbound.sort((a, b) => b.iv - a.iv);
+    return inbound.slice(0, 10);
+  }, [result, yearIdx, flowIdx]);
 
   /* compare-mode divergence: controller here vs controller in the reference sim */
   const diffIdxs = useMemo(() => {
@@ -319,6 +335,31 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
               )}
             </g>
           ))}
+        </g>
+      )}
+
+      {/* P1b influence flow — soft gold arcs into the selected power from
+          the countries in its orbit, thickness ∝ gravity pull */}
+      {flowIdx !== null && flowIdx >= 0 && flowArcs.length > 0 && (
+        <g pointerEvents="none">
+          {flowArcs.map(({ c, iv }) => {
+            const a = COUNTRIES[c], b = COUNTRIES[flowIdx];
+            const mx = (a.cx + b.cx) / 2, my = (a.cy + b.cy) / 2;
+            const dx = b.cx - a.cx, dy = b.cy - a.cy;
+            const dist = Math.hypot(dx, dy) || 1;
+            const lift = Math.min(46, dist * 0.22);
+            const cxp = mx + (-dy / dist) * lift, cyp = my + (dx / dist) * lift;
+            const maxIv = flowArcs[0].iv || 1;
+            return (
+              <g key={`flow-${c}`}>
+                <path d={`M${a.cx} ${a.cy} Q${cxp.toFixed(1)} ${cyp.toFixed(1)} ${b.cx} ${b.cy}`}
+                  fill="none" stroke={powerColor(COUNTRIES[flowIdx].code)}
+                  strokeWidth={0.8 + (iv / maxIv) * 3} strokeLinecap="round" opacity={0.42 + 0.45 * (iv / maxIv)} />
+                <circle cx={a.cx} cy={a.cy} r={1.6 + (iv / maxIv) * 1.8} fill={powerColor(COUNTRIES[flowIdx].code)} opacity="0.85" />
+              </g>
+            );
+          })}
+          <circle cx={COUNTRIES[flowIdx].cx} cy={COUNTRIES[flowIdx].cy} r="3.4" fill="none" stroke={powerColor(COUNTRIES[flowIdx].code)} strokeWidth="1.2" opacity="0.9" />
         </g>
       )}
 

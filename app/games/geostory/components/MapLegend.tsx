@@ -46,7 +46,7 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
           <Swatch bg={rep} label="sovereign — wears its own colour" />
           <Swatch bg={shade(rep, 0.62)} label="held territory (darker)" />
           <Swatch outline label="№ 1 power glows gold" />
-          <span style={{ color: FAINT }}>each colour names the controlling power — click a tile for its dossier</span>
+          <span style={{ color: FAINT }}>colour = controlling power — click a tile for its dossier</span>
         </>
       )}
       {layer === "influence" && (
@@ -73,7 +73,7 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
           {WATERWAY_SWATCHES.map((s) => (
             <Swatch key={s.name} bg={s.color} label={s.name} striped={s.canal} />
           ))}
-          <span style={{ color: FAINT }}>the land itself, drawn as pixel art — switch to any other layer to lay power back over the ground</span>
+          <span style={{ color: FAINT }}>the land itself — switch layers to lay power back over it</span>
         </>
       )}
       {layer === "tech" && (

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WaitlistForm from "@/components/WaitlistForm";
 import { CODE_IDX, END_YEAR, START_YEAR } from "../lib/data";
 import { ZERO_BOOSTS, runSimulation, type SimConfig } from "../lib/engine";
 import { LAYERS, type LayerId } from "../lib/scenarios";
+import { decodeRun } from "../lib/share";
 import SimPanel from "./SimPanel";
 
 const SPEEDS = [0.5, 1, 2, 4];
@@ -40,10 +41,18 @@ function validCfg(c: unknown): c is SimConfig {
 }
 
 const GUIDE_STEPS: { icon: string; title: string; text: string }[] = [
-  { icon: "▶", title: "Press Play", text: "Run the century from 2026 to 2100 — or drag the year slider and scrub history yourself." },
-  { icon: "◎", title: "Click any country", text: "Its dossier opens: GDP, technology, who holds it, whose market it feeds — and buttons to boost it or set it as a rival." },
-  { icon: "▦", title: "Switch layers", text: "Territory, Influence, Economic dominance and Technology are four different maps of power — and Terrain is the land itself, pixel-art ground under every border. Watch how they disagree." },
-  { icon: "⧉", title: "Duplicate & bend it", text: "Clone a sim, change its seed or shock deck, and compare two centuries side by side. Same seed + settings = same history, every time." },
+  { icon: "▶", title: "Watch the century", text: "Press play — 175 countries, 75 years, one deterministic history. Same seed, same century, every time." },
+  { icon: "⚑", title: "Spend influence at turning points", text: "Each decade, and after big shocks, the run pauses. Bend one thing: a research drive, a trade realignment, a hardened strait." },
+  { icon: "🔗", title: "Share your run", text: "The export kit carries a challenge link — anyone who opens it replays your exact century, interventions included." },
+];
+
+/** P1c — the model, on one card. Short on purpose. */
+const MODEL_SECTIONS: { head: string; body: string }[] = [
+  { head: "RECEPTIVITY", body: "Influence lands where a country is open to it. A power's pull on a neighbour is its bloc power × the neighbour's receptivity ÷ distance — open, unstable places drift first; closed, stable ones barely move." },
+  { head: "MARKET GRAVITY", body: "Trade follows the biggest nearby economy. Market dominance usually arrives years before political influence does — the takeover before the takeover." },
+  { head: "CHOKEPOINTS & SHOCKS", body: "A handful of straits carry the world's energy and goods. Close one and importers stall while rival exporters cash in. Droughts, finds, breakthroughs and crises reshuffle the same way: relative power, suddenly repriced." },
+  { head: "THE TERRITORY RULE", body: "Borders move last, and rarely. A flip needs sustained influence from one power, a wide power gap, a shared border and deep local instability, held for years. Most of history is orbits and markets, not annexations." },
+  { head: "YOUR INFLUENCE", body: "You hold 6 influence points. At each decade — and after major shocks — you may spend them on one lever: research, realignment, a hardened strait, a crisis, a stability compact. Small nudges, honestly priced." },
 ];
 
 export default function SimulatorApp() {
@@ -57,6 +66,9 @@ export default function SimulatorApp() {
   const [terrainArt, setTerrainArt] = useState(true);
   const [weatherOn, setWeatherOn] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [challenge, setChallenge] = useState(false);
+  const challengeRef = useRef(false);
   const [engaged, setEngaged] = useState(false);
   const [ctaGone, setCtaGone] = useState(true); // revealed by effect only pre-engagement checks pass
   const rafRef = useRef<number | null>(null);
@@ -66,15 +78,26 @@ export default function SimulatorApp() {
   /* full deterministic histories, computed here so panels can be diffed */
   const results = useMemo(() => panels.map((p) => runSimulation(p.cfg)), [panels]);
 
-  /* ---- persistence: restore the visitor's panels, then keep them saved -- */
+  /* ---- persistence: restore the visitor's panels, then keep them saved.
+     A challenge link (?run=…) wins over saved panels — and while one is
+     loaded, the visitor's own saved panels are left untouched. */
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(LS_PANELS);
-      if (raw) {
-        const arr: unknown = JSON.parse(raw);
-        if (Array.isArray(arr) && arr.length >= 1 && arr.length <= 4 && arr.every(validCfg)) {
-          setPanels(arr.map((cfg, i) => ({ id: i + 1, cfg: cfg as SimConfig })));
-          nextId = arr.length + 1;
+      const param = new URLSearchParams(window.location.search).get("run");
+      const linked = param ? decodeRun(param) : null;
+      if (linked) {
+        challengeRef.current = true;
+        setChallenge(true);
+        setPanels([{ id: 1, cfg: linked }]);
+        nextId = 2;
+      } else {
+        const raw = localStorage.getItem(LS_PANELS);
+        if (raw) {
+          const arr: unknown = JSON.parse(raw);
+          if (Array.isArray(arr) && arr.length >= 1 && arr.length <= 4 && arr.every(validCfg)) {
+            setPanels(arr.map((cfg, i) => ({ id: i + 1, cfg: cfg as SimConfig })));
+            nextId = arr.length + 1;
+          }
         }
       }
       const disp = localStorage.getItem(LS_DISPLAY);
@@ -99,6 +122,7 @@ export default function SimulatorApp() {
     /* skip the mount run: the restore above may still be applying, and the
        defaults must never overwrite a returning visitor's saved panels */
     if (!saveArmedRef.current) { saveArmedRef.current = true; return; }
+    if (challengeRef.current) return; // a visiting challenge run is not ours to save over
     try {
       localStorage.setItem(LS_PANELS, JSON.stringify(panels.map((p) => p.cfg)));
     } catch { /* storage full/blocked — non-fatal */ }
@@ -129,6 +153,7 @@ export default function SimulatorApp() {
   useEffect(() => { if (yearFloat >= 25) setEngaged(true); }, [yearFloat]);
 
   const year = START_YEAR + Math.floor(yearFloat);
+  const pausePlayback = useCallback(() => setPlaying(false), []);
   const togglePlay = () => {
     if (yearFloat >= MAX_YEAR_IDX) setYearFloat(0);
     setPlaying((p) => !p);
@@ -225,7 +250,7 @@ export default function SimulatorApp() {
               </button>
             ))}
           </div>
-          <div className="flex min-w-0 flex-wrap overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Map layer">
+          <div className="flex min-w-0 flex-nowrap overflow-x-auto rounded-md border sm:flex-wrap sm:overflow-hidden" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Map layer">
             {LAYERS.map((l) => (
               <button key={l.id} onClick={() => setLayer(l.id)} className="px-2 py-1.5 text-[11px] tracking-wide"
                 style={{ background: layer === l.id ? "#c9963a" : "transparent", color: layer === l.id ? "#081426" : "#cdbfa5" }}
@@ -287,6 +312,14 @@ export default function SimulatorApp() {
             ＋ COMPARE SIM ({panels.length}/4)
           </button>
           <button
+            onClick={() => setModelOpen(true)}
+            className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+            style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
+            aria-label="How the model works"
+          >
+            ⓘ THE MODEL
+          </button>
+          <button
             onClick={() => setGuideOpen(true)}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[13px] font-bold"
             style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
@@ -299,10 +332,24 @@ export default function SimulatorApp() {
           {atStart ? (
             <span className="font-display text-[13px] tracking-[0.14em]" style={{ color: GOLD }}>PRESS ▶ TO RUN THE CENTURY</span>
           ) : (
-            <>{LAYERS.find((l) => l.id === layer)?.blurb} · click any tile or country to inspect it · playback is synchronised across all sims</>
+            <>{LAYERS.find((l) => l.id === layer)?.blurb} · click a country to inspect it</>
           )}
         </p>
       </div>
+
+      {/* challenge run chip — this century arrived by link */}
+      {challenge && (
+        <div className="mx-auto max-w-[1500px] px-3 pt-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-2.5"
+            style={{ background: "rgba(201,150,58,0.10)", borderColor: "rgba(240,192,96,0.55)" }}>
+            <span className="font-display text-xs tracking-[0.18em]" style={{ color: GOLD }}>⚔ CHALLENGE RUN</span>
+            <span className="text-xs" style={{ color: PARCH }}>
+              This exact century arrived by link — same config, same history. Press play, then try to beat it with interventions of your own.
+            </span>
+            <button onClick={() => setChallenge(false)} className="ml-auto text-sm leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss the challenge notice">✕</button>
+          </div>
+        </div>
+      )}
 
       {/* contextual waitlist CTA — earned by playing, never an overlay */}
       {showCta && (
@@ -314,8 +361,7 @@ export default function SimulatorApp() {
               <div className="min-w-[230px] flex-1">
                 <div className="font-display text-sm tracking-[0.18em]" style={{ color: GOLD }}>LIKED STEERING THE CENTURY?</div>
                 <p className="mt-1 text-xs leading-relaxed" style={{ color: PARCH }}>
-                  In the full GeoStory game you play every turn yourself — every alliance, every shock, every border.
-                  Join the Kickstarter waitlist and we&apos;ll email you the day it launches.
+                  In the full game you play every turn yourself. Join the Kickstarter waitlist — we&apos;ll email you at launch.
                 </p>
               </div>
               <div className="w-full min-w-[260px] flex-1 sm:w-auto">
@@ -340,12 +386,14 @@ export default function SimulatorApp() {
             layer={layer}
             terrainArt={terrainArt}
             weather={weatherOn}
+            playing={playing}
+            onPauseRequest={pausePlayback}
             selectedIdx={selectedIdx}
             onSelect={setSelectedIdx}
             onRemove={panels.length > 1 ? () => setPanels((ps) => ps.filter((x) => x.id !== p.id)) : undefined}
             onDuplicate={panels.length < 4 ? () => {
               const id = nextId++;
-              setPanels((ps) => [...ps, { id, cfg: { ...p.cfg, boosts: { ...p.cfg.boosts }, rivals: p.cfg.rivals?.map((r) => ({ ...r, boosts: { ...r.boosts } })), deck: p.cfg.deck ? { ...p.cfg.deck } : undefined } }]);
+              setPanels((ps) => [...ps, { id, cfg: { ...p.cfg, boosts: { ...p.cfg.boosts }, rivals: p.cfg.rivals?.map((r) => ({ ...r, boosts: { ...r.boosts } })), deck: p.cfg.deck ? { ...p.cfg.deck } : undefined, modifiers: p.cfg.modifiers ? [...p.cfg.modifiers] : undefined, interventions: p.cfg.interventions?.map((v) => ({ ...v })) } }]);
             } : undefined}
           />
         ))}
@@ -382,6 +430,37 @@ export default function SimulatorApp() {
             <p className="mt-3 text-center text-[11px]" style={{ color: MUTED }}>
               Keys: <span style={{ color: PARCH }}>space</span> play/pause · <span style={{ color: PARCH }}>← →</span> step a year · <span style={{ color: PARCH }}>1–5</span> layers
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* P1c — how the model works, one click from the transport */}
+      {modelOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="How the GeoStory model works"
+          style={{ background: "rgba(3,10,20,0.72)" }} onClick={() => setModelOpen(false)}>
+          <div className="max-h-[86vh] w-full max-w-lg overflow-y-auto rounded-xl border px-5 py-5"
+            style={{ background: "linear-gradient(165deg, #0b2138 0%, #06182c 78%)", borderColor: "rgba(201,150,58,0.5)", boxShadow: "0 24px 70px rgba(0,0,0,0.7), inset 0 1px 0 rgba(240,192,96,0.16)" }}
+            onClick={(e) => e.stopPropagation()}>
+            <div className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD_DEEP }}>EMBOOGWAY × STRATATIR</div>
+            <h2 className="mt-1 font-serif text-2xl font-bold" style={{ color: CREAM }}>How the model works</h2>
+            <div className="mt-4 space-y-3.5">
+              {MODEL_SECTIONS.map((s) => (
+                <div key={s.head}>
+                  <div className="font-display text-xs tracking-[0.22em]" style={{ color: GOLD }}>{s.head}</div>
+                  <p className="mt-0.5 text-xs leading-relaxed" style={{ color: PARCH }}>{s.body}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 border-t pt-3 text-xs italic leading-relaxed" style={{ borderColor: "rgba(201,150,58,0.25)", color: MUTED }}>
+              A transparent toy model of power dynamics — built for thinking with, not forecasting. Every run is
+              deterministic: the same seed and settings replay the same century, so arguments are about the model,
+              never about the dice.
+            </p>
+            <button onClick={() => setModelOpen(false)}
+              className="mt-4 w-full rounded px-4 py-2.5 font-display text-base tracking-[0.2em]"
+              style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.4)" }}>
+              BACK TO THE CENTURY
+            </button>
           </div>
         </div>
       )}

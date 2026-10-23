@@ -224,6 +224,20 @@ export function getScenario(id: string): ScenarioDef {
   return SCENARIOS.find((s) => s.id === id) ?? SCENARIOS[0];
 }
 
+/* ------------------------------------------------------- world modifiers
+ * P4a — named starting conditions layered over any scenario. The engine
+ * applies the effects by id (lib/engine.ts); this table is display data.
+ * `selectable` ones appear as pre-run toggles; the rest arrive via the
+ * what-if templates. */
+export interface WorldModifier { id: string; name: string; desc: string; selectable: boolean }
+export const WORLD_MODIFIERS: WorldModifier[] = [
+  { id: "china-slow", name: "China grows 1% slower", desc: "−1 growth point a year, all century", selectable: true },
+  { id: "europe-rearm", name: "Europe re-arms harder", desc: "military share ×1.5–1.7 for the big European powers", selectable: true },
+  { id: "andes-lithium", name: "Lithium boom in the Andes", desc: "Chile, Bolivia and Argentina strike white gold early", selectable: true },
+  { id: "hormuz-perma", name: "Hormuz stays shut", desc: "the strait closes again every six years", selectable: false },
+  { id: "sahel-dry", name: "A dry decade for the Sahel", desc: "megadrought every other year, 2031–2039", selectable: false },
+];
+
 /* ------------------------------------------------------------ power colours
  * Aged-atlas palette: curated, slightly desaturated — enamel and old ink
  * rather than neon. Countries stay distinguishable; gold is reserved for

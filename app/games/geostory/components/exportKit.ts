@@ -12,6 +12,7 @@ import { COUNTRIES, END_YEAR, START_YEAR, WORLD, fmtGdp } from "../lib/data";
 import type { SimConfig, SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
 import { getScenario, powerColor } from "../lib/scenarios";
+import { challengeUrl } from "../lib/share";
 import { WATERWAY_HEXES } from "../lib/terrain";
 import { COMPOUND_PATH, HEXES_BY_COUNTRY, countryFill } from "./WorldMap";
 
@@ -275,12 +276,17 @@ export interface RecapData {
   scenarioName: string;
   seed: string;
   winner: { code: string; name: string; power: number; gdp: number };
+  /** winner's GDP as a share of the whole world's, % */
+  winnerShare: number;
+  /** how many different powers held № 1 across the century */
+  crowns: number;
+  interventions: number;
   top5: { code: string; name: string; power: number }[];
   shocks: RecapShock[];
   focusLine: string | null;
 }
 
-const KIND_PRIORITY: Record<string, number> = { overtake: 0, annex: 1, crisis: 2, shock: 3, breakaway: 4, focus: 5 };
+const KIND_PRIORITY: Record<string, number> = { overtake: 0, annex: 1, crisis: 2, shock: 3, breakaway: 4, focus: 5, intervention: 6 };
 
 export function buildRecap(result: SimResult, cfg: SimConfig): RecapData {
   const last = result.years.length - 1;
@@ -310,10 +316,15 @@ export function buildRecap(result: SimResult, cfg: SimConfig): RecapData {
     }
   }
 
+  const worldGdp = result.years[last].reduce((s, c) => s + c.gdp, 0);
+  const crowns = new Set(result.leaders.map((l) => l[0]?.code).filter(Boolean)).size;
   return {
     scenarioName: getScenario(cfg.scenarioId).name,
     seed: cfg.seed,
     winner: { code: w.code, name: COUNTRIES[wIdx].name, power: w.power, gdp: result.years[last][wIdx].gdp },
+    winnerShare: worldGdp > 0 ? (result.years[last][wIdx].gdp / worldGdp) * 100 : 0,
+    crowns,
+    interventions: cfg.interventions?.length ?? 0,
     top5: leaders.slice(0, 5).map((l) => ({ code: l.code, name: COUNTRIES[COUNTRIES.findIndex((c) => c.code === l.code)].name, power: l.power })),
     shocks,
     focusLine,
@@ -359,11 +370,12 @@ export function buildCaption(result: SimResult, cfg: SimConfig): string {
     const secondName = second ? COUNTRIES[COUNTRIES.findIndex((c) => c.code === second.code)].name : null;
     hook = `${winnerName} ruled the world by 2100 in my GeoStory run${secondName ? ` — ${secondName} came second` : ""} ${flagEmoji(winner.code)}`.trim();
   }
+  const invCount = cfg.interventions?.length ?? 0;
   return [
     hook,
     ``,
-    `${scenario.name} · seed "${cfg.seed}" · the full deterministic century, 2026–2100, on a hex map of 175 countries.`,
-    `Run it yourself: https://www.emboogway.com/games/geostory`,
+    `${scenario.name} · seed "${cfg.seed}"${invCount ? ` · ${invCount} intervention${invCount > 1 ? "s" : ""} spent` : ""} · the full deterministic century, 2026–2100, on a hex map of 175 countries.`,
+    `Replay this exact century — challenge link: ${challengeUrl(cfg)}`,
     `A toy model for entertainment — not a forecast.`,
     ``,
     `#GeoStory #Geopolitics #StrategyGame #WhatIf #AlternateHistory`,
@@ -425,7 +437,14 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
   const chipsY = 226 + titleLines.length * (format === "1:1" ? 60 : 72) + 14;
   let cx = M;
   cx += drawChip(ctx, cx, chipsY, `SEED "${d.seed}"`, `20px ${SANS}`) + 12;
-  drawChip(ctx, cx, chipsY, `${START_YEAR} → ${END_YEAR}`, `20px ${SANS}`);
+  cx += drawChip(ctx, cx, chipsY, `${START_YEAR} → ${END_YEAR}`, `20px ${SANS}`) + 12;
+  if (d.crowns > 1) cx += drawChip(ctx, cx, chipsY, `👑 ${d.crowns} POWERS HELD № 1`, `20px ${SANS}`) + 12;
+  if (d.interventions > 0) cx += drawChip(ctx, cx, chipsY, `⚑ ${d.interventions} INTERVENTION${d.interventions > 1 ? "S" : ""}`, `20px ${SANS}`) + 12;
+  /* the square card's rail has no room for a share line, so it rides the
+     chips row — but only when that row is short enough to hold it */
+  if (format === "1:1" && d.crowns <= 1 && d.interventions === 0) {
+    drawChip(ctx, cx, chipsY, `WINNER HOLDS ${d.winnerShare.toFixed(1)}% OF WORLD GDP`, `20px ${SANS}`);
+  }
 
   const mapY = chipsY + 62;
   if (format === "1:1") {
@@ -438,8 +457,8 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
     kicker(ctx, railX, ry, "№ 1 IN 2100", 24);
     ry += 14;
     ctx.fillStyle = CREAM;
-    ctx.font = `900 41px ${SERIF}`;
-    for (const ln of wrapLines(ctx, d.winner.name, railW, 2)) { ry += 42; ctx.fillText(ln, railX, ry); }
+    ctx.font = `900 46px ${SERIF}`;
+    for (const ln of wrapLines(ctx, d.winner.name, railW, 2)) { ry += 47; ctx.fillText(ln, railX, ry); }
     ry += 34;
     ctx.fillStyle = GOLD;
     ctx.font = `22px ${DISPLAY}`;
@@ -450,7 +469,7 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
     ry += 40;
     kicker(ctx, railX, ry, "TOP FIVE", 22);
     d.top5.forEach((t, i) => {
-      const y = ry + 30 + i * 35;
+      const y = ry + 30 + i * 34;
       ctx.fillStyle = powerColor(t.code);
       ctx.fillRect(railX, y - 13, 13, 13);
       ctx.fillStyle = i === 0 ? GOLD : MUTED;
@@ -506,7 +525,7 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
     y += 6;
     ctx.fillStyle = GOLD;
     ctx.font = `38px ${DISPLAY}`;
-    ctx.fillText(`POWER ${d.winner.power.toFixed(0)} · GDP ${fmtGdp(d.winner.gdp)}`, W / 2, y);
+    ctx.fillText(`POWER ${d.winner.power.toFixed(0)} · GDP ${fmtGdp(d.winner.gdp)} · ${d.winnerShare.toFixed(1)}% OF WORLD GDP`, W / 2, y);
     ctx.textAlign = "left";
     y += 52;
     if (d.focusLine) {

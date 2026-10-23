@@ -20,8 +20,10 @@ import { useEffect, useMemo, useRef } from "react";
 import { COUNTRIES, CODE_IDX, START_YEAR, WORLD } from "../lib/data";
 import type { SimResult } from "../lib/engine";
 
-type SpotKind = "drought" | "storm" | "arctic";
+type SpotKind = "drought" | "storm" | "arctic" | "pulse";
 interface Spot { id: string; year: number; kind: SpotKind; x: number; y: number; r: number }
+
+const NAME_IDX = new Map(COUNTRIES.map((c, i) => [c.name, i]));
 
 /* region membership mirrors engine.ts REGIONS (kept local so the sim
    module needs no new exports) */
@@ -96,6 +98,17 @@ function deriveSpots(result: SimResult): Map<number, Spot[]> {
       }
     } else if (e.text.startsWith("The Arctic opens")) {
       push({ id: `arctic-${e.year}`, year: e.year, kind: "arctic", x: WORLD.width / 2, y: 62, r: WORLD.width / 2 });
+    }
+    /* P2 punctuation: annexations and changes of the #1 power get a gold
+       pulse at the place history just moved (presentation only) */
+    if (e.kind === "annex") {
+      const m = e.text.match(/takes control of (.+?) —/);
+      const i = m ? NAME_IDX.get(m[1]) : undefined;
+      if (i !== undefined) push({ id: `pulse-${e.year}-${i}`, year: e.year, kind: "pulse", x: COUNTRIES[i].cx, y: COUNTRIES[i].cy, r: 30 });
+    } else if (e.kind === "overtake" && e.text.includes("world's #1 power")) {
+      const m = e.text.match(/^(.+?) overtakes /);
+      const i = m ? NAME_IDX.get(m[1]) : undefined;
+      if (i !== undefined) push({ id: `pulse-${e.year}-${i}`, year: e.year, kind: "pulse", x: COUNTRIES[i].cx, y: COUNTRIES[i].cy, r: 38 });
     }
   }
   return byYear;
@@ -330,6 +343,22 @@ export default function WeatherOverlay({
           const wpx = rr * 3.4;
           ctx.drawImage(spr, cx - wpx / 2, cy - wpx * 0.36, wpx, wpx * 0.6);
           ctx.globalAlpha = 1;
+        } else if (s.kind === "pulse") {
+          const cx = PX(s.x), cy = PY(s.y), rr = s.r * sx;
+          /* a soft gold heart, then two rings breathing outward */
+          const heart = ctx.createRadialGradient(cx, cy, 0, cx, cy, rr * 0.8);
+          heart.addColorStop(0, `rgba(240,192,96,${0.20 * a})`);
+          heart.addColorStop(1, "rgba(240,192,96,0)");
+          ctx.fillStyle = heart;
+          ctx.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
+          for (const off of [0, 0.5]) {
+            const ph = reduced ? 0.4 : (t * 0.42 + off) % 1;
+            ctx.strokeStyle = `rgba(240,192,96,${(1 - ph) * 0.55 * a})`;
+            ctx.lineWidth = Math.max(1, sx * 0.35);
+            ctx.beginPath();
+            ctx.arc(cx, cy, rr * (0.25 + ph * 1.05), 0, Math.PI * 2);
+            ctx.stroke();
+          }
         }
         /* arctic handled below via the twinkle field's gain */
       }

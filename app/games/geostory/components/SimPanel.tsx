@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CODE_IDX, COUNTRIES, START_YEAR, fmtGdp, fmtPop } from "../lib/data";
-import { DEFAULT_DECK, ZERO_BOOSTS, type Boosts, type DeckControls, type SimConfig, type SimEvent, type SimResult } from "../lib/engine";
-import { SCENARIOS, getScenario, powerColor, type LayerId } from "../lib/scenarios";
+import {
+  CRISIS_REGIONS, DEFAULT_DECK, INFLUENCE_POOL, LEVERS, STRAITS, ZERO_BOOSTS,
+  type Boosts, type DeckControls, type Intervention, type LeverId, type SimConfig, type SimEvent, type SimResult,
+} from "../lib/engine";
+import { SCENARIOS, WORLD_MODIFIERS, getScenario, powerColor, type LayerId } from "../lib/scenarios";
+import { WHATIF_TEMPLATES } from "../lib/templates";
 import ExportPanel from "./ExportPanel";
 import MapLegend from "./MapLegend";
 import WorldMap, { type Framing } from "./WorldMap";
@@ -17,7 +21,10 @@ const KIND_STYLE: Record<SimEvent["kind"], string> = {
   breakaway: "#5fb3a1",
   focus: "#a8c256",
   crisis: "#a58fd0",
+  intervention: "#f0c060",
 };
+/** chronicle entries that get the strong treatment */
+const MAJOR_KINDS = new Set<SimEvent["kind"]>(["overtake", "annex", "crisis", "intervention"]);
 
 const CREAM = "#f7f0e3";
 const PARCH = "#cdbfa5";
@@ -27,15 +34,39 @@ const GOLD = "#f0c060";
 const GOLD_DEEP = "#c9963a";
 const PANEL_BORDER = "rgba(201,150,58,0.30)";
 
-function Sparkline({ series, color }: { series: number[]; color: string }) {
+function Sparkline({ series, color, currentIdx, marks }: { series: number[]; color: string; currentIdx?: number; marks?: number[] }) {
   const min = Math.min(...series), max = Math.max(...series);
   const span = max - min || 1;
-  const pts = series.map((v, i) => `${((i / (series.length - 1)) * 100).toFixed(1)},${(26 - ((v - min) / span) * 24).toFixed(1)}`).join(" ");
+  const X = (i: number) => (i / (series.length - 1)) * 100;
+  const Y = (v: number) => 26 - ((v - min) / span) * 24;
+  const pts = series.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
   return (
     <svg viewBox="0 0 100 28" className="h-7 w-full" preserveAspectRatio="none" aria-hidden>
       <polyline points={pts} fill="none" stroke={color} strokeWidth="1.6" />
+      {(marks ?? []).map((i) => (
+        <circle key={i} cx={X(i)} cy={Y(series[i])} r="1.7" fill="#f0c060" stroke="#081426" strokeWidth="0.5" />
+      ))}
+      {currentIdx !== undefined && currentIdx >= 0 && currentIdx < series.length && (
+        <>
+          <line x1={X(currentIdx)} y1="1" x2={X(currentIdx)} y2="27" stroke="rgba(247,240,227,0.4)" strokeWidth="0.5" strokeDasharray="1.6 1.6" />
+          <circle cx={X(currentIdx)} cy={Y(series[currentIdx])} r="2.1" fill="#f7f0e3" stroke={color} strokeWidth="1" />
+        </>
+      )}
     </svg>
   );
+}
+
+/** local extrema of a power series — the years its story turned */
+function inflectionMarks(series: number[]): number[] {
+  const out: number[] = [];
+  const span = (Math.max(...series) - Math.min(...series)) || 1;
+  for (let i = 2; i < series.length - 2; i++) {
+    const w = [series[i - 2], series[i - 1], series[i], series[i + 1], series[i + 2]];
+    const isMax = series[i] === Math.max(...w) && series[i] - Math.min(series[i - 1], series[i + 1]) > span * 0.03;
+    const isMin = series[i] === Math.min(...w) && Math.max(series[i - 1], series[i + 1]) - series[i] > span * 0.03;
+    if ((isMax || isMin) && (out.length === 0 || i - out[out.length - 1] > 4)) out.push(i);
+  }
+  return out.slice(0, 8);
 }
 
 function SliderRow({ label, value, onCommit }: { label: string; value: number; onCommit: (v: number) => void }) {
@@ -74,6 +105,114 @@ function ChaosSlider({ chaos, onCommit }: { chaos: number; onCommit: (v: number)
       />
       <span className="w-10 shrink-0 text-right font-mono" style={{ color: GOLD }}>×{(draft / 100).toFixed(2).replace(/0$/, "")}</span>
     </label>
+  );
+}
+
+/* P1a — the intervention bar: appears at turning points (each decade, and
+   after major shocks) with the run paused. Spending writes an Intervention
+   into the run config, so the altered history reproduces exactly. */
+function InterventionBar({ year, pool, options, selectedIdx, onSpend, onDone }: {
+  year: number;
+  pool: number;
+  options: { idx: number; code: string; name: string }[];
+  selectedIdx: number | null;
+  onSpend: (inv: Intervention) => void;
+  onDone: () => void;
+}) {
+  const [leverId, setLeverId] = useState<LeverId>("tech");
+  const lever = LEVERS.find((l) => l.id === leverId) ?? LEVERS[0];
+  const [target, setTarget] = useState<string>(selectedIdx !== null ? COUNTRIES[selectedIdx].code : (options[0]?.code ?? "USA"));
+  const [targetB, setTargetB] = useState<string>(options.find((o) => o.code !== target)?.code ?? "CHN");
+  const [toward, setToward] = useState(true);
+  const [strait, setStrait] = useState("hormuz");
+  const [region, setRegion] = useState("sahel");
+  useEffect(() => { if (selectedIdx !== null) setTarget(COUNTRIES[selectedIdx].code); }, [selectedIdx]);
+  const canAfford = pool >= lever.cost;
+  const selectCls = "rounded border px-2 py-1.5 text-xs";
+  const selectStyle = { background: "#04101e", color: CREAM, borderColor: "rgba(201,150,58,0.4)" } as const;
+  const spend = () => {
+    let t = target;
+    if (lever.id === "trade") t = `${target}${toward ? ">" : "!"}${targetB}`;
+    else if (lever.id === "chokepoint") t = strait;
+    else if (lever.id === "crisis") t = region;
+    onSpend({ year, lever: lever.id, target: t, cost: lever.cost });
+  };
+  return (
+    <div className="mx-4 mt-3 rounded-lg border px-3.5 py-3" role="group" aria-label={`Intervention window, ${year}`}
+      style={{ background: "linear-gradient(160deg, rgba(201,150,58,0.14), rgba(6,20,38,0.7))", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(240,192,96,0.25)" }}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-display text-sm tracking-[0.18em]" style={{ color: GOLD }}>⚑ TURNING POINT — {year}</span>
+        <span className="text-[11px]" style={{ color: PARCH }}>Influence left: <strong style={{ color: GOLD }}>{pool}</strong> — history pauses. Spend it, or let the moment pass.</span>
+        <button onClick={onDone} className="ml-auto rounded border px-2.5 py-1 text-[11px] font-semibold tracking-wider hover:opacity-80"
+          style={{ borderColor: "rgba(147,167,189,0.45)", color: PARCH }}>DONE — LET IT PASS</button>
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Choose a lever">
+        {LEVERS.map((l) => {
+          const on = l.id === leverId;
+          const afford = pool >= l.cost;
+          return (
+            <button key={l.id} onClick={() => setLeverId(l.id)} disabled={!afford}
+              className="rounded-full border px-2.5 py-1 text-[11px] tracking-wide disabled:opacity-40"
+              style={{
+                borderColor: on ? "rgba(240,192,96,0.75)" : "rgba(147,167,189,0.3)",
+                color: on ? GOLD : afford ? PARCH : FAINT,
+                background: on ? "rgba(201,150,58,0.16)" : "transparent",
+              }}
+              aria-pressed={on}>
+              {l.name} · {l.cost}⚑
+            </button>
+          );
+        })}
+      </div>
+      <p className="pt-1.5 text-[11px]" style={{ color: MUTED }}>{lever.blurb}</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        {(lever.target === "country") && (
+          <select value={target} onChange={(e) => setTarget(e.target.value)} className={selectCls} style={selectStyle} aria-label="Target country">
+            {options.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+          </select>
+        )}
+        {lever.target === "trade" && (
+          <>
+            <select value={target} onChange={(e) => setTarget(e.target.value)} className={selectCls} style={selectStyle} aria-label="Country to realign">
+              {options.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+            </select>
+            <div className="flex overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.4)" }} role="group" aria-label="Direction">
+              {([["toward", "→ TOWARD"], ["away", "✕ AWAY FROM"]] as const).map(([dir, label]) => (
+                <button key={dir} onClick={() => setToward(dir === "toward")} className="px-2 py-1.5 text-[11px]"
+                  style={{ background: (dir === "toward") === toward ? GOLD_DEEP : "transparent", color: (dir === "toward") === toward ? "#081426" : PARCH }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <select value={targetB} onChange={(e) => setTargetB(e.target.value)} className={selectCls} style={selectStyle} aria-label="Power to realign toward or away from">
+              {options.filter((o) => o.code !== target).map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+            </select>
+          </>
+        )}
+        {lever.target === "strait" && (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Choose a strait">
+            {STRAITS.map((s) => (
+              <button key={s.id} onClick={() => setStrait(s.id)} className="rounded-full border px-2.5 py-1 text-[11px]"
+                style={{ borderColor: strait === s.id ? "rgba(240,192,96,0.75)" : "rgba(147,167,189,0.3)", color: strait === s.id ? GOLD : PARCH, background: strait === s.id ? "rgba(201,150,58,0.16)" : "transparent" }}
+                aria-pressed={strait === s.id}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {lever.target === "region" && (
+          <select value={region} onChange={(e) => setRegion(e.target.value)} className={selectCls} style={selectStyle} aria-label="Target region">
+            {CRISIS_REGIONS.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+          </select>
+        )}
+        <button onClick={spend} disabled={!canAfford}
+          className="rounded px-3 py-1.5 text-[11px] font-bold tracking-wider disabled:opacity-40"
+          style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426" }}>
+          SPEND {lever.cost} ⚑
+        </button>
+        {pool === 0 && <span className="text-[11px]" style={{ color: FAINT }}>The pool is spent — this century is on its own now.</span>}
+      </div>
+    </div>
   );
 }
 
@@ -116,9 +255,13 @@ interface Props {
   /** display dressing owned by SimulatorApp: terrain plate + weather sky */
   terrainArt?: boolean;
   weather?: boolean;
+  /** playback state, owned by SimulatorApp's shared transport */
+  playing?: boolean;
+  /** ask the transport to pause (an intervention window just opened) */
+  onPauseRequest?: () => void;
 }
 
-export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate, terrainArt = true, weather = true }: Props) {
+export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate, terrainArt = true, weather = true, playing = false, onPauseRequest }: Props) {
   const [seedDraft, setSeedDraft] = useState(cfg.seed);
   const [seedCopied, setSeedCopied] = useState(false);
   useEffect(() => setSeedDraft(cfg.seed), [cfg.seed]);
@@ -175,6 +318,101 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
     if (selectedIdx === null) return [];
     return result.years.map((y) => { const s = y[selectedIdx]; return s.bloc > 0 ? s.bloc : s.pow; });
   }, [result, selectedIdx]);
+  const selMarks = useMemo(() => inflectionMarks(selSeries), [selSeries]);
+
+  /* ---- P2b: risers & fallers over the trailing decade ------------------- */
+  const movers = useMemo(() => {
+    const back = Math.max(0, yearIdx - 10);
+    const rows: { idx: number; delta: number }[] = [];
+    for (let i = 0; i < COUNTRIES.length; i++) {
+      const n = result.years[yearIdx][i], t = result.years[back][i];
+      rows.push({ idx: i, delta: (n.bloc > 0 ? n.bloc : n.pow) - (t.bloc > 0 ? t.bloc : t.pow) });
+    }
+    rows.sort((a, b) => b.delta - a.delta);
+    return {
+      since: START_YEAR + back,
+      risers: rows.filter((r) => r.delta > 0.5).slice(0, 3),
+      fallers: rows.filter((r) => r.delta < -0.5).slice(-3).reverse(),
+    };
+  }, [result, yearIdx]);
+
+  /* ---- P1a: intervention windows + the influence pool ------------------- */
+  const interventions = cfg.interventions ?? [];
+  const poolLeft = Math.max(0, INFLUENCE_POOL - interventions.reduce((s, v) => s + v.cost, 0));
+  const [winKey, setWinKey] = useState<string | null>(null);
+  const resolvedRef = useRef<Set<string>>(new Set());
+  const prevYearRef = useRef(calYear);
+  const [banner, setBanner] = useState<{ key: string; text: string } | null>(null);
+  const [flowOn, setFlowOn] = useState(false);
+  useEffect(() => { resolvedRef.current = new Set(); setWinKey(null); }, [cfg.scenarioId, cfg.seed]);
+  useEffect(() => {
+    if (!banner) return;
+    const t = setTimeout(() => setBanner((b) => (b && b.key === banner.key ? null : b)), 4200);
+    return () => clearTimeout(t);
+  }, [banner]);
+  useEffect(() => {
+    const prev = prevYearRef.current;
+    prevYearRef.current = calYear;
+    if (calYear === prev) return;
+    if (playing) {
+      const majors = result.events.filter((e) => e.year === calYear && MAJOR_KINDS.has(e.kind));
+      if (majors.length) setBanner({ key: `${calYear}:${majors[0].text}`, text: majors[0].text });
+    }
+    if (poolLeft <= 0 || winKey !== null) return;
+    const decade = [2036, 2046, 2056, 2066, 2076, 2086, 2096].find((w) => prev < w && calYear >= w);
+    let key: string | null = decade ? `d${decade}` : null;
+    if (!key && playing && calYear >= 2031 && result.events.some((e) => e.year === calYear && (e.kind === "shock" || e.kind === "crisis" || e.kind === "overtake"))) {
+      const past = [...resolvedRef.current].map((k) => parseInt(k.slice(1), 10)).filter(Number.isFinite);
+      if (calYear - (past.length ? Math.max(...past) : 0) >= 6) key = `s${calYear}`;
+    }
+    if (key && !resolvedRef.current.has(key)) {
+      setWinKey(key);
+      onPauseRequest?.();
+    }
+  }, [calYear, playing, poolLeft, result, winKey, onPauseRequest]);
+  const closeWindow = () => { if (winKey) resolvedRef.current.add(winKey); setWinKey(null); };
+  const powerOptions = useMemo(() => {
+    const row = result.years[yearIdx];
+    const idxs = COUNTRIES.map((_, i) => i).filter((i) => row[i].bloc > 0)
+      .sort((a, b) => row[b].bloc - row[a].bloc).slice(0, 36);
+    if (selectedIdx !== null && !idxs.includes(selectedIdx)) idxs.push(selectedIdx);
+    return idxs.map((i) => ({ idx: i, code: COUNTRIES[i].code, name: COUNTRIES[i].name }));
+  }, [result, yearIdx, selectedIdx]);
+
+  /* ---- P1b: "why" — plain language over the engine's attribution ------- */
+  const whyLines = useMemo(() => {
+    if (selectedIdx === null) return [];
+    const at = result.attrib[yearIdx][selectedIdx];
+    const code = COUNTRIES[selectedIdx].code;
+    const lines: { head: string; body: string; w: number }[] = [];
+    if (at.sh <= -0.4) lines.push({ head: "SHOCKS", body: `This year's shocks cut ≈${Math.abs(at.sh).toFixed(1)} points off growth.`, w: Math.abs(at.sh) });
+    else if (at.sh >= 0.6) lines.push({ head: "WINDFALL", body: `Booms and finds added ≈${at.sh.toFixed(1)} points to growth this year.`, w: at.sh });
+    if (at.i !== selectedIdx) lines.push({
+      head: "ORBIT",
+      body: `${COUNTRIES[at.i].name} pulls hardest — gravity ${at.iv.toFixed(0)} against its own ${at.sv.toFixed(0)} (power × receptivity ÷ distance).`,
+      w: at.sv > 0 ? at.iv / at.sv : 1,
+    });
+    if (at.e !== selectedIdx) lines.push({
+      head: "MARKET",
+      body: `${COUNTRIES[at.e].name} dominates its market gravity (${at.ev.toFixed(0)}) — trade follows the biggest nearby economy.`,
+      w: 0.8,
+    });
+    if (at.tg >= 8) lines.push({
+      head: "TECHNOLOGY",
+      body: `${at.tg.toFixed(0)} points behind the frontier — diffusion from ahead neighbours helps, but the gap taxes everything.`,
+      w: at.tg / 40,
+    });
+    for (const v of interventions) {
+      const dur = v.lever === "trade" ? 15 : v.lever === "chokepoint" ? 20 : 10;
+      if (calYear < v.year || calYear >= v.year + dur) continue;
+      const mine = (v.lever === "tech" || v.lever === "stability") && v.target === code;
+      const tradeMine = v.lever === "trade" && v.target.split(/[>!]/)[0] === code;
+      if (mine || tradeMine) {
+        lines.push({ head: "YOUR HAND", body: `${LEVERS.find((l) => l.id === v.lever)?.name} is still working — until ${v.year + dur}.`, w: 2 });
+      }
+    }
+    return lines.sort((a, b) => b.w - a.w).slice(0, 3);
+  }, [result, yearIdx, selectedIdx, interventions, calYear]);
 
   const setBoost = (key: keyof Boosts) => (v: number) => onCfg({ ...cfg, boosts: { ...cfg.boosts, [key]: v } });
   const setRivalBoost = (code: string) => (key: keyof Boosts) => (v: number) =>
@@ -182,7 +420,25 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const setDeck = (patch: Partial<DeckControls>) => onCfg({ ...cfg, deck: { ...deck, ...patch } });
   const onScenario = (id: string) => {
     const sc = getScenario(id);
-    onCfg({ ...cfg, scenarioId: id, focusCode: sc.focus, boosts: ZERO_BOOSTS });
+    /* a new scenario is a new century — spent interventions belong to the old one */
+    onCfg({ ...cfg, scenarioId: id, focusCode: sc.focus, boosts: ZERO_BOOSTS, interventions: [] });
+  };
+  const modifiers = cfg.modifiers ?? [];
+  const toggleModifier = (id: string) =>
+    onCfg({ ...cfg, modifiers: modifiers.includes(id) ? modifiers.filter((m) => m !== id) : [...modifiers, id] });
+  const applyTemplate = (patch: Partial<SimConfig>) => {
+    resolvedRef.current = new Set();
+    setWinKey(null);
+    onCfg({
+      scenarioId: patch.scenarioId ?? cfg.scenarioId,
+      seed: cfg.seed,
+      focusCode: patch.focusCode,
+      boosts: patch.boosts ?? { ...ZERO_BOOSTS },
+      rivals: patch.rivals ?? [],
+      deck: patch.deck ? { ...patch.deck } : { ...DEFAULT_DECK },
+      modifiers: patch.modifiers ?? [],
+      interventions: [],
+    });
   };
 
   const selIsFocus = selGeo !== null && focusIdx === selectedIdx;
@@ -209,13 +465,18 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             ◉ {scenario.place}
           </span>
         )}
+        <span className="rounded-full border px-2 py-0.5 text-[10px] tracking-[0.14em]"
+          style={{ borderColor: "rgba(240,192,96,0.5)", color: GOLD, background: "rgba(201,150,58,0.10)" }}
+          title="Influence points — spend them at turning points: each decade, and after major shocks">
+          ⚑ {poolLeft} INFLUENCE
+        </span>
         <span className="hidden font-serif text-xs italic lg:inline" style={{ color: MUTED }}>{scenario.tagline}</span>
         <span className="ml-auto flex items-center gap-2">
           {onDuplicate && <button onClick={onDuplicate} className="rounded border px-2 py-1 text-[11px] tracking-wide hover:opacity-80" style={{ borderColor: "rgba(201,150,58,0.35)", color: "#cbb27a" }}>DUPLICATE</button>}
           {onRemove && <button onClick={onRemove} className="rounded border px-2 py-1 text-[11px] tracking-wide hover:opacity-80" style={{ borderColor: "rgba(209,96,61,0.45)", color: "#e09a83" }}>REMOVE</button>}
         </span>
       </div>
-      <p className="px-4 pt-1.5 text-[11px] leading-snug" style={{ color: FAINT }}>{scenario.desc}</p>
+      <p className="line-clamp-2 px-4 pt-1.5 text-[11px] leading-snug sm:line-clamp-none" style={{ color: FAINT }}>{scenario.desc}</p>
 
       {/* seed row */}
       <div className="flex flex-wrap items-center gap-2 px-4 pt-2.5">
@@ -240,10 +501,70 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         <span className="text-[11px]" style={{ color: FAINT }}>same seed + settings = same history</span>
       </div>
 
+      {/* what-if forks + starting world modifiers — one swipeable strip on
+          phones so the map stays near the first screen */}
+      <div className="flex gap-4 overflow-x-auto px-4 pt-2.5 sm:block sm:space-y-1.5 sm:overflow-visible">
+        <div className="flex shrink-0 flex-nowrap items-center gap-1.5 sm:flex-wrap">
+          <span className="text-[10px] tracking-[0.18em]" style={{ color: MUTED }}>WHAT-IF FORKS</span>
+          {WHATIF_TEMPLATES.map((t) => (
+            <button key={t.id} onClick={() => applyTemplate(t.patch)} title={t.desc}
+              className="rounded-full border px-2.5 py-1 text-[11px] tracking-wide hover:opacity-85"
+              style={{ borderColor: "rgba(111,168,207,0.45)", color: "#a9cbe4", background: "rgba(111,168,207,0.07)" }}>
+              ⑂ {t.name}
+            </button>
+          ))}
+        </div>
+        <div className="flex shrink-0 flex-nowrap items-center gap-1.5 sm:flex-wrap">
+          <span className="text-[10px] tracking-[0.18em]" style={{ color: MUTED }}>WORLD MODIFIERS</span>
+          {WORLD_MODIFIERS.filter((m) => m.selectable).map((m) => {
+            const on = modifiers.includes(m.id);
+            return (
+              <button key={m.id} onClick={() => toggleModifier(m.id)} title={m.desc} aria-pressed={on}
+                className="rounded-full border px-2.5 py-1 text-[11px] tracking-wide"
+                style={{
+                  borderColor: on ? "rgba(240,192,96,0.65)" : "rgba(147,167,189,0.3)",
+                  color: on ? GOLD : FAINT,
+                  background: on ? "rgba(201,150,58,0.13)" : "transparent",
+                }}>
+                {on ? "●" : "○"} {m.name}
+              </button>
+            );
+          })}
+          {WORLD_MODIFIERS.filter((m) => !m.selectable && modifiers.includes(m.id)).map((m) => (
+            <span key={m.id} className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] tracking-wide"
+              style={{ borderColor: "rgba(240,192,96,0.65)", color: GOLD, background: "rgba(201,150,58,0.13)" }} title={m.desc}>
+              ● {m.name}
+              <button onClick={() => toggleModifier(m.id)} aria-label={`Remove modifier ${m.name}`} className="leading-none hover:opacity-75">✕</button>
+            </span>
+          ))}
+          {modifiers.length === 0 && <span className="text-[11px]" style={{ color: FAINT }}>none — the world as scripted</span>}
+        </div>
+      </div>
+
+      {/* P1a — intervention window (the run is paused while it is open) */}
+      {winKey !== null && (
+        <InterventionBar
+          year={calYear}
+          pool={poolLeft}
+          options={powerOptions}
+          selectedIdx={selectedIdx}
+          onSpend={(inv) => onCfg({ ...cfg, interventions: [...interventions, inv] })}
+          onDone={closeWindow}
+        />
+      )}
+
       {/* map + framing toggle */}
       <div className="relative px-2 pt-2">
-        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} />
+        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} />
         <MapLegend layer={layer} />
+        {banner && (
+          <div key={banner.key} className="pointer-events-none absolute bottom-9 left-1/2 z-20 w-max max-w-[92%] -translate-x-1/2 rounded-md border px-3 py-1.5 text-center"
+            style={{ background: "rgba(4,16,30,0.92)", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 28px rgba(0,0,0,0.6)" }}
+            role="status">
+            <span className="font-display text-[11px] tracking-[0.22em]" style={{ color: GOLD }}>⚡ HISTORY CHANGED</span>
+            <span className="block truncate text-[11px]" style={{ color: CREAM }}>{banner.text}</span>
+          </div>
+        )}
         <button
           onClick={() => setFraming(framing === "region" ? "world" : "region")}
           className="absolute left-3.5 top-3.5 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm"
@@ -279,6 +600,27 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               );
             })}
           </ol>
+          {(movers.risers.length > 0 || movers.fallers.length > 0) && (
+            <div className="mt-2.5">
+              <div className="mb-1 font-display text-[10px] tracking-[0.18em]" style={{ color: MUTED }}>
+                MOVERS — SINCE {movers.since}
+              </div>
+              <ul className="space-y-0.5">
+                {[...movers.risers.map((r) => ({ ...r, up: true })), ...movers.fallers.map((r) => ({ ...r, up: false }))].map((r) => (
+                  <li key={`${r.up ? "u" : "d"}-${r.idx}`}>
+                    <button onClick={() => onSelect(r.idx)} className="flex w-full items-center gap-2 rounded px-1.5 py-[2px] text-left text-[11px] hover:bg-white/5" style={{ color: PARCH }}>
+                      <span style={{ color: r.up ? "#7fb069" : "#d1603d" }}>{r.up ? "▲" : "▼"}</span>
+                      <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: powerColor(COUNTRIES[r.idx].code) }} />
+                      <span className="truncate">{COUNTRIES[r.idx].name}</span>
+                      <span className="ml-auto font-mono" style={{ color: r.up ? "#7fb069" : "#d1603d" }}>
+                        {r.delta > 0 ? "+" : "−"}{Math.abs(r.delta).toFixed(0)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         <div>
           <SectionHead right={watchedNames.size > 0 ? (
@@ -292,13 +634,21 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           </SectionHead>
           <ul className="space-y-1.5">
             {feed.length === 0 && <li className="text-xs" style={{ color: FAINT }}>The world holds its breath… press play.</li>}
-            {feed.map((e, i) => (
-              <li key={`${e.year}-${i}`} className="flex gap-2 text-[11px] leading-snug" style={{ color: PARCH }}>
-                <span className="w-8 shrink-0 font-display text-[13px] leading-none" style={{ color: GOLD }}>{e.year}</span>
-                <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: KIND_STYLE[e.kind] }} />
-                <span>{e.text}</span>
-              </li>
-            ))}
+            {feed.map((e, i) => {
+              const major = MAJOR_KINDS.has(e.kind);
+              return (
+                <li key={`${e.year}-${i}`} className={`flex gap-2 text-[11px] leading-snug ${major ? "font-semibold" : ""}`}
+                  style={{
+                    color: major ? CREAM : PARCH,
+                    borderLeft: e.kind === "intervention" ? "2px solid rgba(240,192,96,0.65)" : "2px solid transparent",
+                    paddingLeft: e.kind === "intervention" ? 6 : 2,
+                  }}>
+                  <span className="w-8 shrink-0 font-display text-[13px] leading-none" style={{ color: GOLD }}>{e.year}</span>
+                  <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: KIND_STYLE[e.kind] }} />
+                  <span>{e.text}</span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
@@ -340,8 +690,42 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             ))}
           </div>
           <div className="mt-2">
-            <div className="text-[9px] tracking-[0.18em]" style={{ color: MUTED }}>POWER TRAJECTORY 2026–2100</div>
-            <Sparkline series={selSeries} color={powerColor(selGeo.code)} />
+            <div className="text-[9px] tracking-[0.18em]" style={{ color: MUTED }}>POWER TRAJECTORY 2026–2100 · ◆ = TURNING YEARS</div>
+            <Sparkline series={selSeries} color={powerColor(selGeo.code)} currentIdx={yearIdx} marks={selMarks} />
+          </div>
+          {/* P1b — why this country is where it is, from the engine's own terms */}
+          <div className="mt-2 border-t pt-2" style={{ borderColor: "rgba(201,150,58,0.22)" }}>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] tracking-[0.18em]" style={{ color: MUTED }}>WHY — {calYear}</span>
+              <span className="h-px flex-1" style={{ background: "rgba(201,150,58,0.18)" }} />
+              <button onClick={() => setFlowOn((v) => !v)} aria-pressed={flowOn}
+                className="rounded border px-2 py-0.5 text-[10px] font-semibold tracking-wider"
+                style={{
+                  borderColor: flowOn ? "rgba(240,192,96,0.7)" : "rgba(147,167,189,0.4)",
+                  color: flowOn ? GOLD : MUTED,
+                  background: flowOn ? "rgba(201,150,58,0.13)" : "transparent",
+                }}
+                title="Draw the selected power's strongest influence pulls on the map">
+                🛰 INFLUENCE FLOW
+              </button>
+            </div>
+            {whyLines.length > 0 ? (
+              <ul className="mt-1.5 space-y-1">
+                {whyLines.map((l) => (
+                  <li key={l.head} className="flex gap-2 text-[11px] leading-snug" style={{ color: PARCH }}>
+                    <span className="w-[88px] shrink-0 font-display text-[10px] leading-[1.5] tracking-[0.14em]" style={{ color: GOLD }}>{l.head}</span>
+                    <span>{l.body}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-[11px]" style={{ color: FAINT }}>Nothing unusual — its own weight, distance and drift explain this year.</p>
+            )}
+            {flowOn && (
+              <p className="mt-1 text-[11px]" style={{ color: FAINT }}>
+                The arcs are {selGeo.name}&apos;s strongest pulls — the countries inside its orbit at {calYear}, thickness ∝ gravity.
+              </p>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {!selIsFocus && (
@@ -350,7 +734,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 className="rounded px-2.5 py-1.5 text-[11px] font-bold tracking-wider"
                 style={{ background: GOLD_DEEP, color: "#081426" }}
               >
-                ⚑ BOOST {selGeo.name.toUpperCase()} IN THIS SIM
+                ⚑ BOOST {selGeo.name.toUpperCase()}
               </button>
             )}
             {!selIsFocus && !selIsRival && rivals.length < 2 && focusIdx >= 0 && (
@@ -388,8 +772,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         ) : (
           <p className="text-[11px]" style={{ color: FAINT }}>
             {cfg.scenarioId === "rise"
-              ? "Click any country on the map, then hit “Boost” to start its rise — then set up to two rivals against it."
-              : "Tip: click a country to inspect it — then boost it, or set it as a rival to a boosted power."}
+              ? "Click a country, hit “Boost” to start its rise — then set up to two rivals."
+              : "Tip: click a country to inspect it — boost it, or make it a rival."}
           </p>
         )}
         {rivals.map((r) => {
@@ -440,7 +824,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               })}
             </div>
             <ChaosSlider chaos={deck.chaos} onCommit={(v) => setDeck({ chaos: v })} />
-            <p className="pt-1 text-[11px]" style={{ color: FAINT }}>How often the world misbehaves. ×0 silences the random deck entirely (scripted scenario events still fire).</p>
+            <p className="pt-1 text-[11px]" style={{ color: FAINT }}>How often the world misbehaves. ×0 silences the random deck (scripted events still fire).</p>
           </div>
         )}
       </div>

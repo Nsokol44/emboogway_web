@@ -6,8 +6,9 @@
  * recap card PNG, caption text) entirely client-side via exportKit.
  * Files are named for the run so they drop straight into a posting flow.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SimConfig, SimResult } from "../lib/engine";
+import { challengeUrl } from "../lib/share";
 import {
   buildCaption, copyText, downloadBlob, recordTimelapse, renderRecapCard,
   slugify, videoExportSupported, type TimelapseFormat,
@@ -27,8 +28,12 @@ export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: S
   const [progress, setProgress] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const cancelRef = useRef(false);
-  const canVideo = videoExportSupported();
+  /* probed after mount: asking during render answers differently on the
+     server (no window) than on the client, which broke hydration (#418) */
+  const [canVideo, setCanVideo] = useState(true);
+  useEffect(() => { setCanVideo(videoExportSupported()); }, []);
   const base = `geostory-${slugify(cfg.scenarioId)}-${slugify(cfg.seed)}`;
 
   const doVideo = async () => {
@@ -68,6 +73,16 @@ export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: S
     setBusy(null);
   };
 
+  const doLink = async () => {
+    const ok = await copyText(challengeUrl(cfg, window.location.origin));
+    if (ok) {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1800);
+    } else {
+      setNote("Clipboard blocked by this browser — the challenge link could not be copied.");
+    }
+  };
+
   const doCaption = async () => {
     const ok = await copyText(buildCaption(result, cfg));
     if (ok) {
@@ -102,7 +117,7 @@ export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: S
         </div>
       </div>
       <p className="pb-2 text-[11px] leading-snug" style={{ color: FAINT }}>
-        Clean, branded artifacts of this exact run — no page chrome. Drop them straight into your posting flow.
+        Branded artifacts of this exact run — ready to post.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={doVideo} disabled={busy !== null || !canVideo} className={btn}
@@ -125,6 +140,11 @@ export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: S
           style={{ borderColor: "rgba(147,167,189,0.4)", color: CREAM }}
           aria-label="Copy a ready-to-post caption for this run">
           {copied ? "✓ COPIED" : "⧉ COPY CAPTION"}
+        </button>
+        <button onClick={doLink} className={ghost}
+          style={{ borderColor: "rgba(240,192,96,0.55)", color: GOLD }}
+          aria-label="Copy a challenge link that replays this exact run">
+          {linkCopied ? "✓ LINK COPIED" : "🔗 COPY CHALLENGE LINK"}
         </button>
       </div>
       {!canVideo && (
