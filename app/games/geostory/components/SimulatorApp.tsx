@@ -12,6 +12,7 @@ const MAX_YEAR_IDX = END_YEAR - START_YEAR;
 
 const LS_PANELS = "geostory-panels-v1";
 const LS_GUIDE = "geostory-guide-v1";
+const LS_DISPLAY = "geostory-display-v1";
 const SS_CTA = "geostory-cta-shown";
 
 let nextId = 2;
@@ -41,7 +42,7 @@ function validCfg(c: unknown): c is SimConfig {
 const GUIDE_STEPS: { icon: string; title: string; text: string }[] = [
   { icon: "▶", title: "Press Play", text: "Run the century from 2026 to 2100 — or drag the year slider and scrub history yourself." },
   { icon: "◎", title: "Click any country", text: "Its dossier opens: GDP, technology, who holds it, whose market it feeds — and buttons to boost it or set it as a rival." },
-  { icon: "▦", title: "Switch layers", text: "Territory, Influence, Economic dominance and Technology are four different maps of power. Watch how they disagree." },
+  { icon: "▦", title: "Switch layers", text: "Territory, Influence, Economic dominance and Technology are four different maps of power — and Terrain is the land itself, pixel-art ground under every border. Watch how they disagree." },
   { icon: "⧉", title: "Duplicate & bend it", text: "Clone a sim, change its seed or shock deck, and compare two centuries side by side. Same seed + settings = same history, every time." },
 ];
 
@@ -53,11 +54,14 @@ export default function SimulatorApp() {
   const [layer, setLayer] = useState<LayerId>("territory");
   const [selectedIdx, setSelectedIdx] = useState<number | null>(CODE_IDX.get("USA") ?? 0);
   const [showDiff, setShowDiff] = useState(false);
+  const [terrainArt, setTerrainArt] = useState(true);
+  const [weatherOn, setWeatherOn] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
   const [engaged, setEngaged] = useState(false);
   const [ctaGone, setCtaGone] = useState(true); // revealed by effect only pre-engagement checks pass
   const rafRef = useRef<number | null>(null);
   const saveArmedRef = useRef(false);
+  const displayArmedRef = useRef(false);
 
   /* full deterministic histories, computed here so panels can be diffed */
   const results = useMemo(() => panels.map((p) => runSimulation(p.cfg)), [panels]);
@@ -73,10 +77,23 @@ export default function SimulatorApp() {
           nextId = arr.length + 1;
         }
       }
+      const disp = localStorage.getItem(LS_DISPLAY);
+      if (disp) {
+        const d = JSON.parse(disp) as { terrainArt?: unknown; weather?: unknown };
+        if (typeof d.terrainArt === "boolean") setTerrainArt(d.terrainArt);
+        if (typeof d.weather === "boolean") setWeatherOn(d.weather);
+      }
       if (!localStorage.getItem(LS_GUIDE)) setGuideOpen(true);
       setCtaGone(sessionStorage.getItem(SS_CTA) === "1");
     } catch { /* private mode etc. — the defaults are fine */ }
   }, []);
+
+  useEffect(() => {
+    if (!displayArmedRef.current) { displayArmedRef.current = true; return; }
+    try {
+      localStorage.setItem(LS_DISPLAY, JSON.stringify({ terrainArt, weather: weatherOn }));
+    } catch { /* non-fatal */ }
+  }, [terrainArt, weatherOn]);
 
   useEffect(() => {
     /* skip the mount run: the restore above may still be applying, and the
@@ -117,7 +134,7 @@ export default function SimulatorApp() {
     setPlaying((p) => !p);
   };
 
-  /* ---- keyboard: space play/pause, arrows step a year, 1–4 layers ------- */
+  /* ---- keyboard: space play/pause, arrows step a year, 1–5 layers ------- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -132,7 +149,7 @@ export default function SimulatorApp() {
       } else if (e.key === "ArrowLeft") {
         setPlaying(false);
         setYearFloat((y) => Math.max(0, y - 1));
-      } else if (["1", "2", "3", "4"].includes(e.key)) {
+      } else if (["1", "2", "3", "4", "5"].includes(e.key)) {
         setLayer(LAYERS[Number(e.key) - 1].id);
       }
     };
@@ -235,6 +252,32 @@ export default function SimulatorApp() {
             </button>
           )}
           <button
+            onClick={() => setTerrainArt((v) => !v)}
+            className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+            style={{
+              borderColor: terrainArt ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
+              color: terrainArt ? GOLD : "#cbb27a",
+              background: terrainArt ? "rgba(201,150,58,0.12)" : "transparent",
+            }}
+            aria-pressed={terrainArt}
+            aria-label="Toggle the pixel-art terrain under the map"
+          >
+            ⛰ TERRAIN ART
+          </button>
+          <button
+            onClick={() => setWeatherOn((v) => !v)}
+            className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+            style={{
+              borderColor: weatherOn ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
+              color: weatherOn ? GOLD : "#cbb27a",
+              background: weatherOn ? "rgba(201,150,58,0.12)" : "transparent",
+            }}
+            aria-pressed={weatherOn}
+            aria-label="Toggle the ambient weather overlay"
+          >
+            ☁ WEATHER
+          </button>
+          <button
             onClick={addPanel}
             disabled={panels.length >= 4}
             className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider disabled:opacity-40"
@@ -295,6 +338,8 @@ export default function SimulatorApp() {
             diffResult={showDiff && i > 0 ? results[0] : null}
             yearFloat={yearFloat}
             layer={layer}
+            terrainArt={terrainArt}
+            weather={weatherOn}
             selectedIdx={selectedIdx}
             onSelect={setSelectedIdx}
             onRemove={panels.length > 1 ? () => setPanels((ps) => ps.filter((x) => x.id !== p.id)) : undefined}
@@ -335,7 +380,7 @@ export default function SimulatorApp() {
               START PLAYING
             </button>
             <p className="mt-3 text-center text-[11px]" style={{ color: MUTED }}>
-              Keys: <span style={{ color: PARCH }}>space</span> play/pause · <span style={{ color: PARCH }}>← →</span> step a year · <span style={{ color: PARCH }}>1–4</span> layers
+              Keys: <span style={{ color: PARCH }}>space</span> play/pause · <span style={{ color: PARCH }}>← →</span> step a year · <span style={{ color: PARCH }}>1–5</span> layers
             </p>
           </div>
         </div>

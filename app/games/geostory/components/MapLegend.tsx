@@ -6,6 +6,7 @@
  * caps, enamel swatches, one hairline rule.
  */
 import { powerColor, shade, techColor, LAYERS, type LayerId } from "../lib/scenarios";
+import { TERRAIN_SWATCHES } from "../lib/terrain";
 
 const MUTED = "#93a7bd";
 const FAINT = "#5f748c";
@@ -60,6 +61,14 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
           <Swatch bg={shade(rep, 0.55)} label="dominates its own market (dimmed)" />
           <Swatch outline label="№ 1 power glows gold" />
           <span style={{ color: FAINT }}>colour names the dominant market — gravity decays with distance</span>
+        </>
+      )}
+      {layer === "terrain" && (
+        <>
+          {TERRAIN_SWATCHES.map((s) => (
+            <Swatch key={s.name} bg={s.color} label={s.name} />
+          ))}
+          <span style={{ color: FAINT }}>the land itself, drawn as pixel art — switch to any other layer to lay power back over the ground</span>
         </>
       )}
       {layer === "tech" && (

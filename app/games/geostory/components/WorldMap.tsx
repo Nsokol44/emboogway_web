@@ -16,11 +16,13 @@
  * Framing: "world" shows the whole atlas plate; "region" glides the
  * viewBox to the protagonist's neighbourhood (and back) over ~0.45s.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COUNTRIES, WORLD, fmtGdp } from "../lib/data";
 import type { SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
 import { powerColor, shade, techColor, type LayerId } from "../lib/scenarios";
+import { DOMINANT_TERRAIN, TERRAIN_LABEL, TERRAIN_PALETTE, getTerrainPlateURL } from "../lib/terrain";
+import WeatherOverlay from "./WeatherOverlay";
 
 /* ------------------------------------------------------------ hex geometry */
 const R = WORLD.hexR;
@@ -127,9 +129,13 @@ interface Props {
   /** when set (compare mode), countries whose controller differs from this
       reference run at the current year get a pulsing cream outline */
   diffResult?: SimResult | null;
+  /** pixel-art terrain plate under the political washes (default on) */
+  terrainArt?: boolean;
+  /** ambient weather overlay — the sky (default on) */
+  weather?: boolean;
 }
 
-export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null }: Props) {
+export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null, terrainArt = true, weather = true }: Props) {
   const yearIdx = Math.max(0, Math.min(result.years.length - 1, Math.floor(yearFloat)));
   const flips = useMemo(() => computeFlips(result), [result]);
   const leaderCode = result.leaders[yearIdx]?.[0]?.code;
@@ -195,8 +201,27 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
   const compassX = box.x + box.w - compassR * 2.1;
   const compassY = box.y + compassR * 2.3;
 
+  /* pixel-art terrain plate: drawn once (module cache), laid under the
+     political fills, which turn into translucent washes over it */
+  const [terrainUrl, setTerrainUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!terrainArt) return;
+    let on = true;
+    getTerrainPlateURL().then((u) => { if (on) setTerrainUrl(u); });
+    return () => { on = false; };
+  }, [terrainArt]);
+  const showTerrain = terrainArt && terrainUrl !== null;
+  /** fill opacity for the country washes: 1 = today's flat atlas;
+      with terrain beneath, power reads as a wash and the ground shows */
+  const washOpacity = layer === "terrain" ? 0
+    : !showTerrain ? 1
+    : layer === "territory" ? 0.58
+    : layer === "tech" ? 0.6
+    : 0.62;
+  const getBox = useCallback(() => boxRef.current, []);
+
   return (
-    <>
+    <div className="relative">
     <svg viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} className="block h-auto w-full" role="application" aria-label="World simulation map"
       onMouseMove={positionTip} onMouseLeave={() => setHoverIdx(null)}>
       <defs>
@@ -222,15 +247,22 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
       <rect x="0" y="0" width={WORLD.width} height={WORLD.height} fill={`url(#${uid}-hexgrid)`} opacity="0.04" pointerEvents="none" />
       <path d={GRATICULE_OUTLINE} fill="none" stroke="rgba(201,150,58,0.18)" strokeWidth="0.9" pointerEvents="none" />
 
+      {/* the pixel-art terrain plate — ground truth under every wash */}
+      {showTerrain && (
+        <image href={terrainUrl} x={0} y={0} width={WORLD.width} height={WORLD.height}
+          preserveAspectRatio="none" style={{ imageRendering: "pixelated" }} pointerEvents="none" />
+      )}
+
       {/* land tiles, one compound path per country */}
       {COUNTRIES.map((c, idx) => (
         <path
           key={c.code}
           d={COMPOUND_PATH[idx]}
           fill={countryFill(result, yearIdx, idx, layer, leaderIdx)}
+          fillOpacity={washOpacity}
           stroke="rgba(3,10,20,0.55)"
           strokeWidth="0.4"
-          style={{ cursor: "pointer", transition: "fill 0.45s ease" }}
+          style={{ cursor: "pointer", transition: "fill 0.45s ease, fill-opacity 0.45s ease" }}
           onClick={() => onSelect(idx)}
           onMouseOver={() => setHoverIdx(idx)}
         >
@@ -239,7 +271,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
       ))}
 
       {/* annexation waves: flipping tiles sweep from the annexer's side */}
-      {activeFlips.map((f) => {
+      {layer !== "terrain" && activeFlips.map((f) => {
         const hexes = HEXES_BY_COUNTRY[f.country];
         const ax = COUNTRIES[f.to].cx, ay = COUNTRIES[f.to].cy;
         let maxD = 1;
@@ -256,7 +288,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         return (
           <g key={`${f.country}-${f.year}`} pointerEvents="none">
             {hexes.map((h, hi) => (
-              <path key={hi} d={hexPath(h.x, h.y)} fill={ds[hi] / maxD <= progress ? newFill : oldFill} stroke="rgba(3,10,20,0.55)" strokeWidth="0.4" />
+              <path key={hi} d={hexPath(h.x, h.y)} fill={ds[hi] / maxD <= progress ? newFill : oldFill} fillOpacity={washOpacity} stroke="rgba(3,10,20,0.55)" strokeWidth="0.4" />
             ))}
           </g>
         );
@@ -302,13 +334,16 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
       ))}
     </svg>
 
+    {/* the sky — ambient weather above the washes, below the chrome */}
+    {weather && <WeatherOverlay result={result} yearIdx={yearIdx} getBox={getBox} />}
+
     {/* hover tooltip — follows the cursor, positioned imperatively */}
     {hoverIdx !== null && hoverSnap && (
       <div ref={tipRef} className="pointer-events-none absolute left-0 top-0 z-20 min-w-[150px] rounded-md border px-2.5 py-1.5"
         style={{ background: "rgba(4,16,30,0.94)", borderColor: "rgba(240,192,96,0.5)", boxShadow: "0 8px 22px rgba(0,0,0,0.55)" }}
         aria-hidden>
         <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: powerColor(COUNTRIES[hoverIdx].code) }} />
+          <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: layer === "terrain" ? TERRAIN_PALETTE[DOMINANT_TERRAIN[hoverIdx]][1] : powerColor(COUNTRIES[hoverIdx].code) }} />
           <span className="text-xs font-semibold" style={{ color: "#f7f0e3" }}>{COUNTRIES[hoverIdx].name}</span>
         </div>
         <div className="mt-0.5 text-[11px] leading-snug" style={{ color: "#cdbfa5" }}>
@@ -328,10 +363,11 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
               : <>Market ruled by <strong style={{ color: powerColor(COUNTRIES[hoverSnap.e].code) }}>{COUNTRIES[hoverSnap.e].name}</strong></>
           )}
           {layer === "tech" && <>Technology <strong style={{ color: "#f0c060" }}>{hoverSnap.tech.toFixed(0)}</strong> / 100</>}
+          {layer === "terrain" && <>Terrain: <strong style={{ color: "#f0c060" }}>{TERRAIN_LABEL[DOMINANT_TERRAIN[hoverIdx]]}</strong> heartland</>}
           <span style={{ color: "#93a7bd" }}> · GDP {fmtGdp(hoverSnap.gdp)}</span>
         </div>
       </div>
     )}
-    </>
+    </div>
   );
 }

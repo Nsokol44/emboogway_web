@@ -113,9 +113,12 @@ interface Props {
   uid: string;
   onRemove?: () => void;
   onDuplicate?: () => void;
+  /** display dressing owned by SimulatorApp: terrain plate + weather sky */
+  terrainArt?: boolean;
+  weather?: boolean;
 }
 
-export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate }: Props) {
+export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate, terrainArt = true, weather = true }: Props) {
   const [seedDraft, setSeedDraft] = useState(cfg.seed);
   const [seedCopied, setSeedCopied] = useState(false);
   useEffect(() => setSeedDraft(cfg.seed), [cfg.seed]);
@@ -239,7 +242,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
 
       {/* map + framing toggle */}
       <div className="relative px-2 pt-2">
-        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} />
+        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} />
         <MapLegend layer={layer} />
         <button
           onClick={() => setFraming(framing === "region" ? "world" : "region")}
