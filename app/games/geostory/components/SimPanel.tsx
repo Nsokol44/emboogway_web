@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CODE_IDX, COUNTRIES, START_YEAR, fmtGdp, fmtPop } from "../lib/data";
 import {
   CRISIS_REGIONS, DEFAULT_DECK, INFLUENCE_POOL, LEVERS, STRAITS, ZERO_BOOSTS,
   type Boosts, type DeckControls, type Intervention, type LeverId, type SimConfig, type SimEvent, type SimResult,
 } from "../lib/engine";
-import { SCENARIOS, WORLD_MODIFIERS, getScenario, powerColor, type LayerId } from "../lib/scenarios";
+import { LAYERS, SCENARIOS, WORLD_MODIFIERS, getScenario, powerColor, type LayerId } from "../lib/scenarios";
 import { WHATIF_TEMPLATES } from "../lib/templates";
 import ExportPanel from "./ExportPanel";
 import MapLegend from "./MapLegend";
@@ -138,7 +138,7 @@ function InterventionBar({ year, pool, options, selectedIdx, onSpend, onDone }: 
     onSpend({ year, lever: lever.id, target: t, cost: lever.cost });
   };
   return (
-    <div className="mx-4 mt-3 rounded-lg border px-3.5 py-3" role="group" aria-label={`Intervention window, ${year}`}
+    <div className="mx-2 mb-2 rounded-lg border px-3.5 py-3 sm:mx-3" role="group" aria-label={`Intervention window, ${year}`}
       style={{ background: "linear-gradient(160deg, rgba(201,150,58,0.14), rgba(6,20,38,0.7))", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(240,192,96,0.25)" }}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-display text-sm tracking-[0.18em]" style={{ color: GOLD }}>⚑ TURNING POINT — {year}</span>
@@ -237,6 +237,50 @@ function BoostSliders({ boosts, onSet }: { boosts: Boosts; onSet: (key: keyof Bo
   );
 }
 
+/* transport + shared chrome, owned by SimulatorApp and handed to whichever
+   panel is active on the stage — the bottom deck renders from this */
+export interface TransportProps {
+  playing: boolean;
+  onTogglePlay: () => void;
+  onReset: () => void;
+  year: number;
+  yearFloat: number;
+  maxYearIdx: number;
+  onScrub: (v: number) => void;
+  speed: number;
+  onSpeed: (s: number) => void;
+  speeds: number[];
+  layer: LayerId;
+  onLayer: (l: LayerId) => void;
+  terrainArt: boolean;
+  onTerrainArt: () => void;
+  weatherOn: boolean;
+  onWeather: () => void;
+  showDiff: boolean | null;
+  onToggleDiff: () => void;
+  onModelOpen: () => void;
+  onGuideOpen: () => void;
+}
+
+type SheetTab = "powers" | "dossier" | "chronicle" | "setup" | "export";
+
+const SHEET_TABS: { id: SheetTab; label: string }[] = [
+  { id: "powers", label: "POWERS" },
+  { id: "dossier", label: "DOSSIER" },
+  { id: "chronicle", label: "CHRONICLE" },
+  { id: "setup", label: "SETUP" },
+  { id: "export", label: "EXPORT" },
+];
+
+/* short strip labels — full names + blurbs ride on the title tooltips */
+const LAYER_SHORT: Record<LayerId, string> = {
+  territory: "TERRITORY",
+  influence: "INFLUENCE",
+  economic: "ECONOMIC",
+  tech: "TECH",
+  terrain: "TERRAIN",
+};
+
 interface Props {
   cfg: SimConfig;
   onCfg: (cfg: SimConfig) => void;
@@ -259,9 +303,14 @@ interface Props {
   playing?: boolean;
   /** ask the transport to pause (an intervention window just opened) */
   onPauseRequest?: () => void;
+  /** stage state: only the active panel shows; the deck renders for it */
+  active: boolean;
+  transport: TransportProps;
+  panelSwitcher: ReactNode;
+  challengeChip: ReactNode;
 }
 
-export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate, terrainArt = true, weather = true, playing = false, onPauseRequest }: Props) {
+export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate, terrainArt = true, weather = true, playing = false, onPauseRequest, active, transport: tp, panelSwitcher, challengeChip }: Props) {
   const [seedDraft, setSeedDraft] = useState(cfg.seed);
   const [seedCopied, setSeedCopied] = useState(false);
   useEffect(() => setSeedDraft(cfg.seed), [cfg.seed]);
@@ -344,6 +393,30 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const prevYearRef = useRef(calYear);
   const [banner, setBanner] = useState<{ key: string; text: string } | null>(null);
   const [flowOn, setFlowOn] = useState(false);
+
+  /* BOTTOM DECK — the expanded sheet over the map; null = collapsed strip
+     only. Picking a country opens its dossier; an open intervention window
+     always wins the deck (the sheet yields to the Turning Point dock). */
+  const [sheetTab, setSheetTab] = useState<SheetTab | null>(null);
+  const prevSelRef = useRef<number | null>(selectedIdx);
+  useEffect(() => {
+    if (selectedIdx !== null && selectedIdx !== prevSelRef.current && winKey === null) {
+      setSheetTab("dossier");
+    }
+    prevSelRef.current = selectedIdx;
+  }, [selectedIdx, winKey]);
+  useEffect(() => {
+    if (winKey !== null) setSheetTab(null);
+  }, [winKey]);
+  /* Esc collapses the sheet (guide / model overlays are SimulatorApp's) */
+  useEffect(() => {
+    if (!active || sheetTab === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSheetTab(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, sheetTab]);
   useEffect(() => { resolvedRef.current = new Set(); setWinKey(null); }, [cfg.scenarioId, cfg.seed]);
   useEffect(() => {
     if (!banner) return;
@@ -446,8 +519,80 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const deckSummary = `${[deck.chokepoints && "straits", deck.climate && "climate", deck.pandemics && "plague", deck.rushes && "rushes"].filter(Boolean).length}/4 decks · chaos ×${deck.chaos.toFixed(1)}`;
 
   return (
-    <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border"
-      style={{ background: "linear-gradient(165deg, #0b2138 0%, #06182c 72%)", borderColor: PANEL_BORDER, boxShadow: "0 18px 50px rgba(0,0,0,0.55)" }}>
+    <div className={`absolute inset-0 ${active ? "" : "hidden"}`} aria-hidden={!active}>
+      {/* ══ MAP STAGE — the world plate fitted to the screen: contain, never
+          cropped, centered; the stage's ocean gradient fills any slack, and
+          the wrapper's exact viewBox aspect keeps the weather canvas 1:1 ══ */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+        style={{ width: "min(100%, calc(100dvh * 960 / 520))", height: "min(100%, calc(100vw * 520 / 960))" }}>
+        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} />
+        <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:left-1/2 max-sm:top-full max-sm:bottom-auto max-sm:mt-2 max-sm:w-max max-sm:max-w-[94%] max-sm:-translate-x-1/2"
+          style={{ background: "rgba(4,15,29,0.52)" }}>
+          <MapLegend layer={layer} />
+        </div>
+        {banner && (
+          <div key={banner.key} className="pointer-events-none absolute left-1/2 top-14 z-20 w-max max-w-[92%] -translate-x-1/2 rounded-md border px-3 py-1.5 text-center"
+            style={{ background: "rgba(4,16,30,0.92)", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 28px rgba(0,0,0,0.6)" }}
+            role="status">
+            <span className="font-display text-[11px] tracking-[0.22em]" style={{ color: GOLD }}>⚡ HISTORY CHANGED</span>
+            <span className="block truncate text-[11px]" style={{ color: CREAM }}>{banner.text}</span>
+          </div>
+        )}
+        <button
+          onClick={() => setFraming(framing === "region" ? "world" : "region")}
+          className="absolute left-2 top-12 z-10 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm max-sm:-top-11 max-sm:left-0"
+          style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.5)", color: GOLD }}
+          aria-label={framing === "region" ? "Zoom back to the full world" : "Frame the region"}
+        >
+          {framing === "region" ? "🌐 FULL WORLD" : `◎ FRAME ${scenario.place ?? "REGION"}`}
+        </button>
+      </div>
+
+      {/* scrim — tapping the map while the sheet is open collapses it */}
+      {active && sheetTab !== null && (
+        <button onClick={() => setSheetTab(null)} className="absolute inset-0 z-20 cursor-default" aria-label="Collapse the panel" tabIndex={-1} />
+      )}
+
+      {/* ══ BOTTOM DECK — Turning Point dock, tabbed sheet, transport strip ══ */}
+      {active && (
+        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col">
+          {/* P1a — intervention window, docked full-width above the strip
+              (the run is paused while it is open) */}
+          {winKey !== null && (
+            <div className="pt-2 backdrop-blur-md" style={{ background: "rgba(3,11,22,0.85)" }}>
+              <InterventionBar
+                year={calYear}
+                pool={poolLeft}
+                options={powerOptions}
+                selectedIdx={selectedIdx}
+                onSpend={(inv) => onCfg({ ...cfg, interventions: [...interventions, inv] })}
+                onDone={closeWindow}
+              />
+            </div>
+          )}
+
+          {/* EXPANDED SHEET — slides up over the map, capped at ~72dvh */}
+          {sheetTab !== null && (
+            <div className="gs-sheet-in flex max-h-[72dvh] flex-col border-t backdrop-blur-md"
+              style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.90), rgba(4,15,29,0.96))", borderColor: PANEL_BORDER, boxShadow: "0 -18px 44px rgba(0,0,0,0.55), inset 0 1px 0 rgba(240,192,96,0.12)" }}>
+              <div className="flex items-center gap-1 px-2 pt-2 sm:px-3" role="tablist" aria-label="Panel sections">
+                {SHEET_TABS.map((t) => (
+                  <button key={t.id} role="tab" aria-selected={sheetTab === t.id}
+                    onClick={() => setSheetTab(t.id)}
+                    className="rounded-md px-2.5 py-1.5 font-display text-[11px] tracking-[0.14em] sm:px-3"
+                    style={{
+                      background: sheetTab === t.id ? "rgba(201,150,58,0.20)" : "transparent",
+                      color: sheetTab === t.id ? GOLD : "#cbb27a",
+                      boxShadow: sheetTab === t.id ? "inset 0 0 0 1px rgba(240,192,96,0.45)" : "inset 0 0 0 1px rgba(201,150,58,0.18)",
+                    }}>
+                    {t.label}
+                  </button>
+                ))}
+                <button onClick={() => setSheetTab(null)} className="ml-auto rounded-md px-2 py-1.5 text-[13px] leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Collapse the panel">▾</button>
+              </div>
+              <div className="min-h-0 overflow-y-auto overscroll-contain">
+                {sheetTab === "setup" && (
+                  <div className="pb-2">
       {/* header */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-3.5">
         <select
@@ -465,11 +610,6 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             ◉ {scenario.place}
           </span>
         )}
-        <span className="rounded-full border px-2 py-0.5 text-[10px] tracking-[0.14em]"
-          style={{ borderColor: "rgba(240,192,96,0.5)", color: GOLD, background: "rgba(201,150,58,0.10)" }}
-          title="Influence points — spend them at turning points: each decade, and after major shocks">
-          ⚑ {poolLeft} INFLUENCE
-        </span>
         <span className="hidden font-serif text-xs italic lg:inline" style={{ color: MUTED }}>{scenario.tagline}</span>
         <span className="ml-auto flex items-center gap-2">
           {onDuplicate && <button onClick={onDuplicate} className="rounded border px-2 py-1 text-[11px] tracking-wide hover:opacity-80" style={{ borderColor: "rgba(201,150,58,0.35)", color: "#cbb27a" }}>DUPLICATE</button>}
@@ -539,44 +679,14 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         </div>
       </div>
 
-      {/* P1a — intervention window (the run is paused while it is open) */}
-      {winKey !== null && (
-        <InterventionBar
-          year={calYear}
-          pool={poolLeft}
-          options={powerOptions}
-          selectedIdx={selectedIdx}
-          onSpend={(inv) => onCfg({ ...cfg, interventions: [...interventions, inv] })}
-          onDone={closeWindow}
-        />
-      )}
+                  </div>
+                )}
 
-      {/* map + framing toggle */}
-      <div className="relative px-2 pt-2">
-        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} />
-        <MapLegend layer={layer} />
-        {banner && (
-          <div key={banner.key} className="pointer-events-none absolute bottom-9 left-1/2 z-20 w-max max-w-[92%] -translate-x-1/2 rounded-md border px-3 py-1.5 text-center"
-            style={{ background: "rgba(4,16,30,0.92)", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 28px rgba(0,0,0,0.6)" }}
-            role="status">
-            <span className="font-display text-[11px] tracking-[0.22em]" style={{ color: GOLD }}>⚡ HISTORY CHANGED</span>
-            <span className="block truncate text-[11px]" style={{ color: CREAM }}>{banner.text}</span>
-          </div>
-        )}
-        <button
-          onClick={() => setFraming(framing === "region" ? "world" : "region")}
-          className="absolute left-3.5 top-3.5 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm"
-          style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.5)", color: GOLD }}
-          aria-label={framing === "region" ? "Zoom back to the full world" : "Frame the region"}
-        >
-          {framing === "region" ? "🌐 FULL WORLD" : `◎ FRAME ${scenario.place ?? "REGION"}`}
-        </button>
-      </div>
-
-      {/* leaderboard + chronicle */}
-      <div className="grid grid-cols-1 gap-x-5 gap-y-3 px-4 pt-2 sm:grid-cols-2">
-        <div>
-          <SectionHead>TOP POWERS — {calYear}</SectionHead>
+      {/* POWERS tab — leaderboard + movers */}
+      {sheetTab === "powers" && (
+        <div className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-3 lg:grid-cols-2">
+          <div>
+            <SectionHead>TOP POWERS — {calYear}</SectionHead>
           <ol className="space-y-0.5">
             {leaders.map((l, i) => {
               const gi = COUNTRIES.findIndex((c) => c.code === l.code);
@@ -597,9 +707,11 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 </li>
               );
             })}
-          </ol>
-          {(movers.risers.length > 0 || movers.fallers.length > 0) && (
-            <div className="mt-2.5">
+            </ol>
+          </div>
+          <div>
+            {(movers.risers.length > 0 || movers.fallers.length > 0) && (
+            <div>
               <div className="mb-1 font-display text-[10px] tracking-[0.18em]" style={{ color: MUTED }}>
                 MOVERS — SINCE {movers.since}
               </div>
@@ -618,10 +730,14 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 ))}
               </ul>
             </div>
-          )}
+              )}
+          </div>
         </div>
-        <div>
-          <SectionHead right={watchedNames.size > 0 ? (
+      )}
+      {sheetTab === "chronicle" && (
+        <div className="px-4 py-3">
+          <div className="mx-auto max-w-3xl">
+            <SectionHead right={watchedNames.size > 0 ? (
             <button onClick={() => setRegionOnly(!regionOnly)} className="rounded border px-1.5 py-0.5 text-[9px] tracking-[0.14em]"
               style={{ borderColor: "rgba(201,150,58,0.4)", color: regionOnly ? GOLD : MUTED }}
               title="Toggle between region events and all events">
@@ -647,13 +763,16 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 </li>
               );
             })}
-          </ul>
+            </ul>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* inspector — the dossier card */}
-      {sel && selGeo && sel0 && (
-        <div className="mx-4 mt-3.5 rounded-lg border px-3.5 py-3"
+      {/* DOSSIER tab — the inspector card */}
+      {sheetTab === "dossier" && (
+        <div className="px-3 pb-3 pt-1 sm:px-4">
+          {sel && selGeo && sel0 ? (
+            <div className="rounded-lg border px-3.5 py-3"
           style={{ background: "linear-gradient(160deg, rgba(23,52,88,0.5), rgba(6,20,38,0.65))", borderColor: "rgba(201,150,58,0.35)", boxShadow: "inset 0 1px 0 rgba(240,192,96,0.15)" }}>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="font-serif text-xl font-bold leading-none" style={{ color: CREAM }}>{selGeo.name}</span>
@@ -753,12 +872,13 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 ◎ FRAME ON MAP
               </button>
             )}
-          </div>
-        </div>
-      )}
-
+            </div>
+            </div>
+          ) : (
+            <p className="px-1 py-2 text-xs" style={{ color: FAINT }}>Click a country on the map to inspect it.</p>
+          )}
       {/* the hand of history: focus + rivals */}
-      <div className="space-y-2.5 px-4 pb-2 pt-3.5">
+      <div className="space-y-2.5 pb-1 pt-3">
         {focusIdx >= 0 ? (
           <div className="rounded-lg border px-3.5 py-2.5" style={{ borderColor: "rgba(201,150,58,0.30)", background: "rgba(201,150,58,0.05)" }}>
             <div className="mb-1.5 flex items-center gap-2">
@@ -788,9 +908,12 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             </div>
           );
         })}
-      </div>
+        </div>
+        </div>
+      )}
 
-      {/* shock deck controls */}
+      {/* shock deck controls — SETUP tab, continued */}
+      {sheetTab === "setup" && (
       <div className="px-4 pb-4">
         <button onClick={() => setDeckOpen(!deckOpen)} className="flex w-full items-center gap-2 text-left" aria-expanded={deckOpen}>
           <span className="font-display text-xs tracking-[0.18em]" style={{ color: GOLD }}>☰ SHOCK DECK</span>
@@ -826,11 +949,155 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           </div>
         )}
       </div>
+      )}
 
-      {/* share kit — exports derive from this panel's finished history */}
-      <div className="mx-4 mb-4 border-t pt-3" style={{ borderColor: "rgba(201,150,58,0.22)" }}>
-        <ExportPanel cfg={cfg} result={result} />
-      </div>
-    </section>
+      {/* EXPORT tab — share kit; exports derive from this panel's history */}
+      {sheetTab === "export" && (
+        <div className="px-4 pb-4 pt-1">
+          <ExportPanel cfg={cfg} result={result} />
+        </div>
+      )}
+              </div>
+            </div>
+          )}
+
+          {/* ══ COLLAPSED STRIP — always visible: transport + view controls ══ */}
+          <div className="border-t backdrop-blur-md"
+            style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.88), rgba(3,11,22,0.96))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 -12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(240,192,96,0.14)" }}>
+            <div className="flex flex-col gap-y-1.5 px-2.5 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-1.5 sm:px-3">
+              <div className="flex items-center gap-1.5 sm:contents">
+              <button
+                onClick={tp.onTogglePlay}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-lg"
+                style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.45)" }}
+                aria-label={tp.playing ? "Pause" : "Play"}
+              >
+                {tp.playing ? "❚❚" : "▶"}
+              </button>
+              <button
+                onClick={tp.onReset}
+                className="shrink-0 rounded-md border px-2 py-1.5 text-[13px] leading-none hover:opacity-80"
+                style={{ borderColor: "rgba(201,150,58,0.4)", color: "#cbb27a" }}
+                aria-label="Reset to 2026"
+                title="Reset to 2026"
+              >
+                ⟲
+              </button>
+              <div className="shrink-0 text-center">
+                <div className="font-display text-3xl leading-none" style={{ color: GOLD }}>{tp.year}</div>
+                <div className="text-[9px] tracking-[0.22em]" style={{ color: MUTED }}>YEAR</div>
+              </div>
+              <input
+                type="range" min="0" max={tp.maxYearIdx} step="0.05" value={tp.yearFloat}
+                onChange={(e) => tp.onScrub(parseFloat(e.target.value))}
+                className="gs-range min-w-[64px] flex-1"
+                aria-label="Year scrubber"
+              />
+              <div className="flex shrink-0 overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Playback speed">
+                {tp.speeds.map((s) => (
+                  <button key={s} onClick={() => tp.onSpeed(s)} className="px-2 py-1.5 font-mono text-[11px]"
+                    style={{ background: tp.speed === s ? "#c9963a" : "transparent", color: tp.speed === s ? "#081426" : "#cbb27a" }}
+                    aria-label={`Playback speed ${s} times`}
+                    aria-pressed={tp.speed === s}>
+                    {s}×
+                  </button>
+                ))}
+              </div>
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:contents sm:overflow-visible sm:pb-0">
+              <span className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
+                style={{ borderColor: "rgba(240,192,96,0.5)", background: "rgba(201,150,58,0.10)" }}
+                title="Influence points — spend them at turning points: each decade, and after major shocks">
+                <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ {poolLeft} INFLUENCE</span>
+              </span>
+              {challengeChip}
+              {panelSwitcher}
+              <button
+                onClick={() => setSheetTab(sheetTab === null ? (sel ? "dossier" : "powers") : null)}
+                className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-display text-[11px] tracking-wider"
+                style={{
+                  borderColor: "rgba(240,192,96,0.6)",
+                  color: GOLD,
+                  background: sheetTab !== null ? "rgba(201,150,58,0.16)" : "rgba(201,150,58,0.06)",
+                }}
+                aria-expanded={sheetTab !== null}
+                aria-label={sheetTab !== null ? "Collapse the panel" : "Expand the panel — powers, dossier, chronicle, setup, export"}
+              >
+                {sheetTab !== null ? "▾ PANELS" : "▴ PANELS"}
+              </button>
+              <div className="flex shrink-0 flex-nowrap overflow-x-auto rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Map layer">
+                {LAYERS.map((l) => (
+                  <button key={l.id} onClick={() => tp.onLayer(l.id)} className="px-[7px] py-1.5 text-[11px] tracking-wide"
+                    style={{ background: tp.layer === l.id ? "#c9963a" : "transparent", color: tp.layer === l.id ? "#081426" : "#cdbfa5" }}
+                    title={`${l.name} — ${l.blurb}`}
+                    aria-label={`Layer: ${l.name}`}
+                    aria-pressed={tp.layer === l.id}>
+                    {LAYER_SHORT[l.id]}
+                  </button>
+                ))}
+              </div>
+              {tp.showDiff !== null && (
+                <button
+                  onClick={tp.onToggleDiff}
+                  className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+                  style={{
+                    borderColor: tp.showDiff ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
+                    color: tp.showDiff ? GOLD : "#cbb27a",
+                    background: tp.showDiff ? "rgba(201,150,58,0.12)" : "transparent",
+                  }}
+                  aria-pressed={tp.showDiff}
+                  aria-label="Highlight countries whose controlling power differs from the first sim"
+                >
+                  ◐ DIFFS vs SIM 1
+                </button>
+              )}
+              <button
+                onClick={tp.onTerrainArt}
+                className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+                style={{
+                  borderColor: tp.terrainArt ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
+                  color: tp.terrainArt ? GOLD : "#cbb27a",
+                  background: tp.terrainArt ? "rgba(201,150,58,0.12)" : "transparent",
+                }}
+                aria-pressed={tp.terrainArt}
+                aria-label="Toggle the pixel-art terrain under the map"
+              >
+                ⛰ TERRAIN ART
+              </button>
+              <button
+                onClick={tp.onWeather}
+                className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+                style={{
+                  borderColor: tp.weatherOn ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
+                  color: tp.weatherOn ? GOLD : "#cbb27a",
+                  background: tp.weatherOn ? "rgba(201,150,58,0.12)" : "transparent",
+                }}
+                aria-pressed={tp.weatherOn}
+                aria-label="Toggle the ambient weather overlay"
+              >
+                ☁ WEATHER
+              </button>
+              <button
+                onClick={tp.onModelOpen}
+                className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+                style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
+                aria-label="How the model works"
+              >
+                ⓘ THE MODEL
+              </button>
+              <button
+                onClick={tp.onGuideOpen}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[13px] font-bold"
+                style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
+                aria-label="How to play — reopen the guide"
+              >
+                ?
+              </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

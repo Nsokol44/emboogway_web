@@ -68,6 +68,9 @@ export default function SimulatorApp() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [challenge, setChallenge] = useState(false);
+  /* the full-screen stage shows ONE panel at a time — the bottom deck's
+     switcher picks which; the rest stay mounted (state intact) but hidden */
+  const [activeId, setActiveId] = useState(1);
   const challengeRef = useRef(false);
   const [engaged, setEngaged] = useState(false);
   const [ctaGone, setCtaGone] = useState(true); // revealed by effect only pre-engagement checks pass
@@ -159,11 +162,17 @@ export default function SimulatorApp() {
     setPlaying((p) => !p);
   };
 
-  /* ---- keyboard: space play/pause, arrows step a year, 1–5 layers ------- */
+  /* ---- keyboard: space play/pause, arrows step a year, 1–5 layers,
+         Esc closes the guide / model overlays (the sheet has its own) ----- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.key === "Escape") {
+        setModelOpen(false);
+        setGuideOpen(false);
+        return;
+      }
       if (e.code === "Space" && t && t.tagName === "BUTTON") return; // a focused button activates natively
       if (e.code === "Space") {
         e.preventDefault();
@@ -193,7 +202,79 @@ export default function SimulatorApp() {
     if (panels.length >= 4) return;
     const id = nextId++;
     setPanels((ps) => [...ps, { id, cfg: { scenarioId: "rise", seed: `run-${id}`, boosts: { growth: 55, tech: 60, military: 50, resources: 45 } } }]);
+    setActiveId(id);
   };
+  const duplicatePanel = (p: { id: number; cfg: SimConfig }) => {
+    if (panels.length >= 4) return;
+    const id = nextId++;
+    setPanels((ps) => [...ps, { id, cfg: { ...p.cfg, boosts: { ...p.cfg.boosts }, rivals: p.cfg.rivals?.map((r) => ({ ...r, boosts: { ...r.boosts } })), deck: p.cfg.deck ? { ...p.cfg.deck } : undefined, modifiers: p.cfg.modifiers ? [...p.cfg.modifiers] : undefined, interventions: p.cfg.interventions?.map((v) => ({ ...v })) } }]);
+    setActiveId(id);
+  };
+  const removePanel = (id: number) => {
+    setPanels((ps) => {
+      const next = ps.filter((x) => x.id !== id);
+      if (id === activeId && next.length > 0) setActiveId(next[next.length - 1].id);
+      return next;
+    });
+  };
+  const activePanel = panels.find((p) => p.id === activeId) ?? panels[0];
+
+  /* shared transport, handed to the active panel's bottom deck */
+  const transport = {
+    playing,
+    onTogglePlay: togglePlay,
+    onReset: () => { setPlaying(false); setYearFloat(0); },
+    year,
+    yearFloat,
+    maxYearIdx: MAX_YEAR_IDX,
+    onScrub: (v: number) => { setPlaying(false); setYearFloat(v); },
+    speed,
+    onSpeed: setSpeed,
+    speeds: SPEEDS,
+    layer,
+    onLayer: setLayer,
+    terrainArt,
+    onTerrainArt: () => setTerrainArt((v) => !v),
+    weatherOn,
+    onWeather: () => setWeatherOn((v) => !v),
+    showDiff: panels.length > 1 ? showDiff : null,
+    onToggleDiff: () => setShowDiff((d) => !d),
+    onModelOpen: () => setModelOpen(true),
+    onGuideOpen: () => setGuideOpen(true),
+  };
+
+  /* panel switcher for the collapsed strip */
+  const panelSwitcher = (
+    <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Comparison sims">
+      {panels.map((p, i) => (
+        <button key={p.id} onClick={() => setActiveId(p.id)} aria-pressed={p.id === activePanel.id}
+          className="rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
+          style={{
+            borderColor: p.id === activePanel.id ? "rgba(240,192,96,0.7)" : "rgba(201,150,58,0.3)",
+            color: p.id === activePanel.id ? GOLD : "#cbb27a",
+            background: p.id === activePanel.id ? "rgba(201,150,58,0.16)" : "transparent",
+          }}>
+          SIM {i + 1}
+        </button>
+      ))}
+      <button onClick={addPanel} disabled={panels.length >= 4}
+        className="rounded-md border px-2 py-1.5 text-[11px] tracking-wider disabled:opacity-40"
+        style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
+        aria-label={`Add a comparison sim (${panels.length} of 4)`}>
+        ＋
+      </button>
+    </div>
+  );
+
+  /* the challenge chip that rides in the collapsed strip */
+  const challengeChip = challenge ? (
+    <span className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
+      style={{ borderColor: "rgba(240,192,96,0.55)", background: "rgba(201,150,58,0.10)" }}
+      title="This exact century arrived by link — same config, same history.">
+      <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>⚔ CHALLENGE RUN</span>
+      <button onClick={() => setChallenge(false)} className="text-xs leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss the challenge notice">✕</button>
+    </span>
+  ) : null;
   const closeGuide = () => {
     setGuideOpen(false);
     try { localStorage.setItem(LS_GUIDE, "1"); } catch { /* non-fatal */ }
@@ -207,173 +288,11 @@ export default function SimulatorApp() {
 
   return (
     <div className="geostory-ui">
-      {/* transport bar — sticks BELOW the fixed site nav: its offset is the
-          nav's own height (--nav-h in globals.css, matched to Nav.tsx) plus
-          a breathing gap, and it sits under the nav in z-order on an opaque
-          navy plate, so the two can never overlap at any width. */}
-      <div className="sticky z-30 mx-auto max-w-[1500px] px-3" style={{ top: "calc(var(--nav-h) + 10px)" }}>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2"
-          style={{ background: "rgba(5,17,32,0.96)", borderColor: "rgba(201,150,58,0.40)", boxShadow: "0 14px 34px rgba(0,0,0,0.6), inset 0 1px 0 rgba(240,192,96,0.14)" }}>
-          <button
-            onClick={togglePlay}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-lg"
-            style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.45)" }}
-            aria-label={playing ? "Pause" : "Play"}
-          >
-            {playing ? "❚❚" : "▶"}
-          </button>
-          <button
-            onClick={() => { setPlaying(false); setYearFloat(0); }}
-            className="shrink-0 rounded-md border px-2 py-1.5 text-[11px] tracking-wider hover:opacity-80"
-            style={{ borderColor: "rgba(201,150,58,0.4)", color: "#cbb27a" }}
-            aria-label="Reset to 2026"
-          >
-            ⟲ 2026
-          </button>
-          <div className="shrink-0 text-center">
-            <div className="font-display text-3xl leading-none" style={{ color: GOLD }}>{year}</div>
-            <div className="text-[9px] tracking-[0.22em]" style={{ color: MUTED }}>YEAR</div>
-          </div>
-          <input
-            type="range" min="0" max={MAX_YEAR_IDX} step="0.05" value={yearFloat}
-            onChange={(e) => { setPlaying(false); setYearFloat(parseFloat(e.target.value)); }}
-            className="gs-range min-w-[110px] flex-1"
-            aria-label="Year scrubber"
-          />
-          <div className="flex shrink-0 overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Playback speed">
-            {SPEEDS.map((s) => (
-              <button key={s} onClick={() => setSpeed(s)} className="px-2 py-1.5 font-mono text-[11px]"
-                style={{ background: speed === s ? "#c9963a" : "transparent", color: speed === s ? "#081426" : "#cbb27a" }}
-                aria-label={`Playback speed ${s} times`}
-                aria-pressed={speed === s}>
-                {s}×
-              </button>
-            ))}
-          </div>
-          <div className="flex min-w-0 flex-nowrap overflow-x-auto rounded-md border sm:flex-wrap sm:overflow-hidden" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Map layer">
-            {LAYERS.map((l) => (
-              <button key={l.id} onClick={() => setLayer(l.id)} className="px-2 py-1.5 text-[11px] tracking-wide"
-                style={{ background: layer === l.id ? "#c9963a" : "transparent", color: layer === l.id ? "#081426" : "#cdbfa5" }}
-                title={l.blurb}
-                aria-label={`Layer: ${l.name}`}
-                aria-pressed={layer === l.id}>
-                {l.name.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          {panels.length > 1 && (
-            <button
-              onClick={() => setShowDiff((d) => !d)}
-              className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
-              style={{
-                borderColor: showDiff ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
-                color: showDiff ? GOLD : "#cbb27a",
-                background: showDiff ? "rgba(201,150,58,0.12)" : "transparent",
-              }}
-              aria-pressed={showDiff}
-              aria-label="Highlight countries whose controlling power differs from the first sim"
-            >
-              ◐ DIFFS vs SIM 1
-            </button>
-          )}
-          <button
-            onClick={() => setTerrainArt((v) => !v)}
-            className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
-            style={{
-              borderColor: terrainArt ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
-              color: terrainArt ? GOLD : "#cbb27a",
-              background: terrainArt ? "rgba(201,150,58,0.12)" : "transparent",
-            }}
-            aria-pressed={terrainArt}
-            aria-label="Toggle the pixel-art terrain under the map"
-          >
-            ⛰ TERRAIN ART
-          </button>
-          <button
-            onClick={() => setWeatherOn((v) => !v)}
-            className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
-            style={{
-              borderColor: weatherOn ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)",
-              color: weatherOn ? GOLD : "#cbb27a",
-              background: weatherOn ? "rgba(201,150,58,0.12)" : "transparent",
-            }}
-            aria-pressed={weatherOn}
-            aria-label="Toggle the ambient weather overlay"
-          >
-            ☁ WEATHER
-          </button>
-          <button
-            onClick={addPanel}
-            disabled={panels.length >= 4}
-            className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider disabled:opacity-40"
-            style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
-            aria-label={`Add a comparison sim (${panels.length} of 4)`}
-          >
-            ＋ COMPARE SIM ({panels.length}/4)
-          </button>
-          <button
-            onClick={() => setModelOpen(true)}
-            className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
-            style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
-            aria-label="How the model works"
-          >
-            ⓘ THE MODEL
-          </button>
-          <button
-            onClick={() => setGuideOpen(true)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[13px] font-bold"
-            style={{ borderColor: "rgba(201,150,58,0.45)", color: GOLD }}
-            aria-label="How to play — reopen the guide"
-          >
-            ?
-          </button>
-        </div>
-        <p className="px-1 pt-1.5 text-center text-[11px]" style={{ color: "#5f748c", textShadow: "0 1px 6px rgba(3,10,20,0.9)" }}>
-          {atStart ? (
-            <span className="font-display text-[13px] tracking-[0.14em]" style={{ color: GOLD }}>PRESS ▶ TO RUN THE CENTURY</span>
-          ) : (
-            <>{LAYERS.find((l) => l.id === layer)?.blurb} · click a country to inspect it</>
-          )}
-        </p>
-      </div>
-
-      {/* challenge run chip — this century arrived by link */}
-      {challenge && (
-        <div className="mx-auto max-w-[1500px] px-3 pt-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-2.5"
-            style={{ background: "rgba(201,150,58,0.10)", borderColor: "rgba(240,192,96,0.55)" }}>
-            <span className="font-display text-xs tracking-[0.18em]" style={{ color: GOLD }}>⚔ CHALLENGE RUN</span>
-            <span className="text-xs" style={{ color: PARCH }}>
-              This exact century arrived by link — same config, same history. Press play, then try to beat it with interventions of your own.
-            </span>
-            <button onClick={() => setChallenge(false)} className="ml-auto text-sm leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss the challenge notice">✕</button>
-          </div>
-        </div>
-      )}
-
-      {/* contextual waitlist CTA — earned by playing, never an overlay */}
-      {showCta && (
-        <div className="mx-auto max-w-[1500px] px-3 pt-3">
-          <div className="relative rounded-xl border px-4 py-3.5"
-            style={{ background: "linear-gradient(150deg, rgba(23,52,88,0.55), rgba(6,20,38,0.8))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "inset 0 1px 0 rgba(240,192,96,0.15)" }}>
-            <button onClick={dismissCta} className="absolute right-2.5 top-2 text-sm leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss this message">✕</button>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-              <div className="min-w-[230px] flex-1">
-                <div className="font-display text-sm tracking-[0.18em]" style={{ color: GOLD }}>LIKED STEERING THE CENTURY?</div>
-                <p className="mt-1 text-xs leading-relaxed" style={{ color: PARCH }}>
-                  In the full game you play every turn yourself. Join the Kickstarter waitlist — we&apos;ll email you at launch.
-                </p>
-              </div>
-              <div className="w-full min-w-[260px] flex-1 sm:w-auto">
-                <WaitlistForm source="geostory-sim" cta="JOIN THE WAITLIST" />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* panels */}
-      <div className={`mx-auto grid max-w-[1500px] grid-cols-1 gap-5 px-3 pb-4 pt-2 ${panels.length > 1 ? "min-[1100px]:grid-cols-2" : ""}`}>
+      {/* ══ THE STAGE — the whole screen is the world map. Every panel
+          stays mounted (its state intact); only the active one shows.
+          The bottom deck — transport strip + tabbed sheet — is rendered
+          by the active panel, docked over the map's lower edge. ══ */}
+      <section className="relative w-full overflow-hidden" style={{ height: "100dvh", background: "radial-gradient(ellipse at 50% 42%, #0d2f52 0%, #081f38 55%, #040f1e 100%)" }} aria-label="GeoStory Simulator">
         {panels.map((p, i) => (
           <SimPanel
             key={p.id}
@@ -390,14 +309,47 @@ export default function SimulatorApp() {
             onPauseRequest={pausePlayback}
             selectedIdx={selectedIdx}
             onSelect={setSelectedIdx}
-            onRemove={panels.length > 1 ? () => setPanels((ps) => ps.filter((x) => x.id !== p.id)) : undefined}
-            onDuplicate={panels.length < 4 ? () => {
-              const id = nextId++;
-              setPanels((ps) => [...ps, { id, cfg: { ...p.cfg, boosts: { ...p.cfg.boosts }, rivals: p.cfg.rivals?.map((r) => ({ ...r, boosts: { ...r.boosts } })), deck: p.cfg.deck ? { ...p.cfg.deck } : undefined, modifiers: p.cfg.modifiers ? [...p.cfg.modifiers] : undefined, interventions: p.cfg.interventions?.map((v) => ({ ...v })) } }]);
-            } : undefined}
+            active={p.id === activePanel.id}
+            transport={transport}
+            panelSwitcher={panelSwitcher}
+            challengeChip={challengeChip}
+            onRemove={panels.length > 1 ? () => removePanel(p.id) : undefined}
+            onDuplicate={panels.length < 4 ? () => duplicatePanel(p) : undefined}
           />
         ))}
-      </div>
+
+        {/* first-run hint — floats over the map, gone once the century moves */}
+        {atStart && (
+          <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-center px-3">
+            <span className="rounded-full border px-3.5 py-1.5 font-display text-[13px] tracking-[0.16em]"
+              style={{ background: "rgba(4,16,30,0.78)", borderColor: "rgba(240,192,96,0.5)", color: GOLD, backdropFilter: "blur(6px)" }}>
+              PRESS ▶ TO RUN THE CENTURY
+            </span>
+          </div>
+        )}
+
+        {/* contextual waitlist CTA — earned by playing; floats top-center
+            under the header overlay, dismissible, never covers mid-map */}
+        {showCta && (
+          <div className="absolute inset-x-0 top-14 z-20 flex justify-center px-3">
+            <div className="relative w-full max-w-xl rounded-xl border px-4 py-3.5 backdrop-blur-md"
+              style={{ background: "linear-gradient(150deg, rgba(23,52,88,0.72), rgba(6,20,38,0.88))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 18px 44px rgba(0,0,0,0.55), inset 0 1px 0 rgba(240,192,96,0.15)" }}>
+              <button onClick={dismissCta} className="absolute right-2.5 top-2 text-sm leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss this message">✕</button>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                <div className="min-w-[230px] flex-1">
+                  <div className="font-display text-sm tracking-[0.18em]" style={{ color: GOLD }}>LIKED STEERING THE CENTURY?</div>
+                  <p className="mt-1 text-xs leading-relaxed" style={{ color: PARCH }}>
+                    In the full game you play every turn yourself. Join the Kickstarter waitlist — we&apos;ll email you at launch.
+                  </p>
+                </div>
+                <div className="w-full min-w-[260px] flex-1 sm:w-auto">
+                  <WaitlistForm source="geostory-sim" cta="JOIN THE WAITLIST" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* first-visit guide — shown once per browser, reopenable via "?" */}
       {guideOpen && (

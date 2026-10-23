@@ -50,8 +50,12 @@ const MUTED = "#93a7bd";
 export default function Geostory() {
   return (
     <div style={{ background: "#050f1d" }}>
+      {/* THE TOOL — a full-screen stage: the world map is the page,
+          everything else on this page lives below it */}
+      <SimulatorApp />
+
       {/* MASTHEAD */}
-      <section className="relative overflow-hidden px-4 pb-6 pt-24 text-center"
+      <section className="relative overflow-hidden px-4 pb-6 pt-16 text-center"
         style={{ background: "radial-gradient(ellipse at 50% -10%, rgba(23,58,99,0.55) 0%, transparent 60%), radial-gradient(ellipse at 85% 10%, rgba(201,150,58,0.08) 0%, transparent 45%), #050f1d" }}>
         <div className="absolute inset-0"
           style={{ backgroundImage: "linear-gradient(rgba(127,176,224,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(127,176,224,0.045) 1px, transparent 1px)", backgroundSize: "44px 44px" }} />
@@ -105,9 +109,6 @@ export default function Geostory() {
           </div>
         </div>
       </section>
-
-      {/* THE TOOL */}
-      <SimulatorApp />
 
       {/* FROM TOY TO GAME */}
       <section className="px-6 py-16">

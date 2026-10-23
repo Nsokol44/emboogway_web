@@ -2,11 +2,18 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 
 export default function Nav() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const pathname = usePathname();
+  /* prerendered pages bake the standard nav (usePathname is null at
+     prerender), so the slim overlay swaps in only after mount — server
+     HTML and first client render always agree */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -22,6 +29,41 @@ export default function Nav() {
     { href: "/lore", label: "Lore" },
     { href: "/studio", label: "Studio" },
   ];
+
+  /* GeoStory: the simulator is a full-screen stage, so the site header
+     shrinks to a slim translucent overlay — logo + links, click-through
+     everywhere except on the links themselves. */
+  if (mounted && pathname === "/games/geostory") {
+    return (
+      <nav className="pointer-events-none fixed inset-x-0 top-0 z-40 bg-gradient-to-b from-[#030b16]/85 via-[#030b16]/45 to-transparent">
+        <div className="flex items-center justify-between px-4 py-2.5 sm:px-6">
+          <Link href="/" className="pointer-events-auto flex items-center gap-3" aria-label="Emboogway home">
+            <Image
+              src="/emboogway-wordmark-light.png"
+              alt="Emboogway"
+              width={2720}
+              height={427}
+              priority
+              className="h-5 w-auto sm:h-6"
+            />
+          </Link>
+          <div className="pointer-events-auto hidden items-center gap-5 md:flex">
+            {links.map((l) => (
+              <Link key={l.href} href={l.href} className="text-xs font-medium tracking-wide text-cream-dim transition-colors duration-200 hover:text-gold-light">
+                {l.label}
+              </Link>
+            ))}
+            <Link href="/games/the-dm#waitlist" className="btn-shimmer rounded px-4 py-1.5 text-xs">
+              Waitlist
+            </Link>
+          </div>
+          <Link href="/" className="pointer-events-auto text-xs font-medium tracking-wide text-cream-dim transition-colors hover:text-gold-light md:hidden">
+            Home
+          </Link>
+        </div>
+      </nav>
+    );
+  }
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-ink/95 backdrop-blur-md border-b border-gold-dim/20" : "bg-transparent"}`}>

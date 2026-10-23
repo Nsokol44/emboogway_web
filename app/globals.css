@@ -303,6 +303,15 @@ body::after {
 }
 
 /* compare-mode divergence outline: a slow cream pulse, in-identity */
+/* GeoStory bottom sheet — rises over the map; no motion at all when the
+   visitor prefers reduced motion (the sheet simply appears) */
+@media (prefers-reduced-motion: no-preference) {
+  .gs-sheet-in { animation: gs-sheet-in 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes gs-sheet-in {
+    from { transform: translateY(16px); opacity: 0.35; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+}
 @keyframes gs-diff-pulse {
   0%, 100% { stroke-opacity: 0.95; }
   50% { stroke-opacity: 0.3; }
