@@ -138,15 +138,15 @@ function InterventionBar({ year, pool, options, selectedIdx, onSpend, onDone }: 
     onSpend({ year, lever: lever.id, target: t, cost: lever.cost });
   };
   return (
-    <div className="mx-2 mb-2 rounded-lg border px-3.5 py-3 sm:mx-3" role="group" aria-label={`Intervention window, ${year}`}
+    <div className="mx-2 mb-2 rounded-lg border px-3.5 py-3 sm:mx-3 max-sm:px-3 max-sm:py-2.5" role="group" aria-label={`Intervention window, ${year}`}
       style={{ background: "linear-gradient(160deg, rgba(201,150,58,0.14), rgba(6,20,38,0.7))", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(240,192,96,0.25)" }}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-display text-sm tracking-[0.18em]" style={{ color: GOLD }}>⚑ TURNING POINT — {year}</span>
+        <span className="font-display text-sm tracking-[0.18em] max-sm:text-[13px]" style={{ color: GOLD }}>⚑ TURNING POINT — {year}</span>
         <span className="text-[11px]" style={{ color: PARCH }}>Influence left: <strong style={{ color: GOLD }}>{pool}</strong> — history pauses. Spend it, or let the moment pass.</span>
         <button onClick={onDone} className="ml-auto rounded border px-2.5 py-1 text-[11px] font-semibold tracking-wider hover:opacity-80"
           style={{ borderColor: "rgba(147,167,189,0.45)", color: PARCH }}>DONE — LET IT PASS</button>
       </div>
-      <div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Choose a lever">
+      <div className="mt-2.5 flex flex-wrap gap-1.5 max-sm:mt-2" role="group" aria-label="Choose a lever">
         {LEVERS.map((l) => {
           const on = l.id === leverId;
           const afford = pool >= l.cost;
@@ -164,8 +164,8 @@ function InterventionBar({ year, pool, options, selectedIdx, onSpend, onDone }: 
           );
         })}
       </div>
-      <p className="pt-1.5 text-[11px]" style={{ color: MUTED }}>{lever.blurb}</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+      <p className="pt-1.5 text-[11px] max-sm:pt-1" style={{ color: MUTED }}>{lever.blurb}</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 max-sm:mt-1">
         {(lever.target === "country") && (
           <select value={target} onChange={(e) => setTarget(e.target.value)} className={selectCls} style={selectStyle} aria-label="Target country">
             {options.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
@@ -519,19 +519,23 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const deckSummary = `${[deck.chokepoints && "straits", deck.climate && "climate", deck.pandemics && "plague", deck.rushes && "rushes"].filter(Boolean).length}/4 decks · chaos ×${deck.chaos.toFixed(1)}`;
 
   return (
-    <div className={`absolute inset-0 ${active ? "" : "hidden"}`} aria-hidden={!active}>
+    <div className={`absolute inset-0 ${active ? "max-sm:flex max-sm:flex-col max-sm:pt-12" : "hidden"}`} aria-hidden={!active}>
       {/* ══ MAP STAGE — the world plate fitted to the screen: contain, never
-          cropped, centered; the stage's ocean gradient fills any slack, and
-          the wrapper's exact viewBox aspect keeps the weather canvas 1:1 ══ */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          cropped; the stage's ocean gradient fills any slack, and the
+          wrapper's exact viewBox aspect keeps the weather canvas 1:1.
+          sm+: centered overlay. PORTRAIT: the root is a flex column and
+          this wrapper is its first in-flow child — the MAP ZONE, pinned
+          directly under the header overlay; the deck below is the UI zone
+          and nothing in it ever overlaps the map ══ */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-sm:relative max-sm:left-auto max-sm:top-auto max-sm:shrink-0 max-sm:translate-x-0 max-sm:translate-y-0"
         style={{ width: "min(100%, calc(100dvh * 960 / 520))", height: "min(100%, calc(100vw * 520 / 960))" }}>
         <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} />
-        <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:left-1/2 max-sm:top-full max-sm:bottom-auto max-sm:mt-2 max-sm:w-max max-sm:max-w-[94%] max-sm:-translate-x-1/2"
+        <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:max-w-[94%]"
           style={{ background: "rgba(4,15,29,0.52)" }}>
           <MapLegend layer={layer} />
         </div>
         {banner && (
-          <div key={banner.key} className="pointer-events-none absolute left-1/2 top-14 z-20 w-max max-w-[92%] -translate-x-1/2 rounded-md border px-3 py-1.5 text-center"
+          <div key={banner.key} className="pointer-events-none absolute left-1/2 top-14 z-20 w-max max-w-[92%] -translate-x-1/2 rounded-md border px-3 py-1.5 text-center max-sm:hidden"
             style={{ background: "rgba(4,16,30,0.92)", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 28px rgba(0,0,0,0.6)" }}
             role="status">
             <span className="font-display text-[11px] tracking-[0.22em]" style={{ color: GOLD }}>⚡ HISTORY CHANGED</span>
@@ -540,7 +544,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         )}
         <button
           onClick={() => setFraming(framing === "region" ? "world" : "region")}
-          className="absolute left-2 top-12 z-10 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm max-sm:-top-11 max-sm:left-0"
+          className="absolute left-2 top-12 z-10 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm max-sm:top-2"
           style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.5)", color: GOLD }}
           aria-label={framing === "region" ? "Zoom back to the full world" : "Frame the region"}
         >
@@ -548,18 +552,34 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         </button>
       </div>
 
-      {/* scrim — tapping the map while the sheet is open collapses it */}
+      {/* scrim — tapping the map while the sheet is open collapses it
+          (sm+ only: on portrait the sheet lives in the UI zone, the map is
+          never covered, and the sheet's own ▾ / PANELS toggle collapses it) */}
       {active && sheetTab !== null && (
-        <button onClick={() => setSheetTab(null)} className="absolute inset-0 z-20 cursor-default" aria-label="Collapse the panel" tabIndex={-1} />
+        <button onClick={() => setSheetTab(null)} className="absolute inset-0 z-20 cursor-default max-sm:hidden" aria-label="Collapse the panel" tabIndex={-1} />
       )}
 
       {/* ══ BOTTOM DECK — Turning Point dock, tabbed sheet, transport strip ══ */}
       {active && (
-        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col">
+        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col max-sm:relative max-sm:inset-auto max-sm:min-h-0 max-sm:flex-1">
+          {/* PORTRAIT UI ZONE — on phones the deck is in-flow below the map
+              zone (see the root), so the banner gets a slot of its own here:
+              never over the map, never clipped behind the Turning Point card.
+              Hidden on sm+ — the banner floats over the map there instead. */}
+          {banner && (
+            <div className="hidden px-3 pt-2 max-sm:block">
+              <div className="rounded-md border px-3 py-1.5 text-center"
+                style={{ background: "rgba(4,16,30,0.92)", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 28px rgba(0,0,0,0.6)" }}
+                role="status">
+                <span className="font-display text-[11px] tracking-[0.22em]" style={{ color: GOLD }}>⚡ HISTORY CHANGED</span>
+                <span className="block truncate text-[11px]" style={{ color: CREAM }}>{banner.text}</span>
+              </div>
+            </div>
+          )}
           {/* P1a — intervention window, docked full-width above the strip
               (the run is paused while it is open) */}
           {winKey !== null && (
-            <div className="pt-2 backdrop-blur-md" style={{ background: "rgba(3,11,22,0.85)" }}>
+            <div className="pt-2 backdrop-blur-md max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overscroll-contain" style={{ background: "rgba(3,11,22,0.85)" }}>
               <InterventionBar
                 year={calYear}
                 pool={poolLeft}
@@ -571,9 +591,11 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             </div>
           )}
 
-          {/* EXPANDED SHEET — slides up over the map, capped at ~72dvh */}
+          {/* EXPANDED SHEET — sm+: slides up over the map, capped at
+              ~72dvh. PORTRAIT: flexes within the UI zone only (its content
+              scrolls internally); the map stays pinned and fully visible */}
           {sheetTab !== null && (
-            <div className="gs-sheet-in flex max-h-[72dvh] flex-col border-t backdrop-blur-md"
+            <div className="gs-sheet-in flex max-h-[72dvh] flex-col border-t backdrop-blur-md max-sm:max-h-none max-sm:min-h-0 max-sm:flex-1"
               style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.90), rgba(4,15,29,0.96))", borderColor: PANEL_BORDER, boxShadow: "0 -18px 44px rgba(0,0,0,0.55), inset 0 1px 0 rgba(240,192,96,0.12)" }}>
               <div className="flex items-center gap-1 px-2 pt-2 sm:px-3" role="tablist" aria-label="Panel sections">
                 {SHEET_TABS.map((t) => (
@@ -962,7 +984,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           )}
 
           {/* ══ COLLAPSED STRIP — always visible: transport + view controls ══ */}
-          <div className="border-t backdrop-blur-md"
+          <div className="border-t backdrop-blur-md max-sm:mt-auto"
             style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.88), rgba(3,11,22,0.96))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 -12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(240,192,96,0.14)" }}>
             <div className="flex flex-col gap-y-1.5 px-2.5 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-1.5 sm:px-3">
               <div className="flex items-center gap-1.5 sm:contents">

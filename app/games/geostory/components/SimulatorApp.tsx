@@ -318,9 +318,12 @@ export default function SimulatorApp() {
           />
         ))}
 
-        {/* first-run hint — floats over the map, gone once the century moves */}
+        {/* first-run hint — floats over the map, gone once the century moves.
+            PORTRAIT: the map zone is pinned under the header and the hint
+            moves to the top of the UI zone below it (48px header clearance +
+            the map's exact height, 100vw × 520/960, + an 8px gap) */}
         {atStart && (
-          <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-center px-3">
+          <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-center px-3 max-sm:top-[calc(54.1667vw_+_56px)]">
             <span className="rounded-full border px-3.5 py-1.5 font-display text-[13px] tracking-[0.16em]"
               style={{ background: "rgba(4,16,30,0.78)", borderColor: "rgba(240,192,96,0.5)", color: GOLD, backdropFilter: "blur(6px)" }}>
               PRESS ▶ TO RUN THE CENTURY
@@ -329,9 +332,12 @@ export default function SimulatorApp() {
         )}
 
         {/* contextual waitlist CTA — earned by playing; floats top-center
-            under the header overlay, dismissible, never covers mid-map */}
+            under the header overlay, dismissible, never covers mid-map.
+            PORTRAIT: same UI-zone-top anchor as the hint (it may overlay the
+            UI zone, never the map; the deck out-ranks it at z-30, so an open
+            sheet or Turning Point still wins the space) */}
         {showCta && (
-          <div className="absolute inset-x-0 top-14 z-20 flex justify-center px-3">
+          <div className="absolute inset-x-0 top-14 z-20 flex justify-center px-3 max-sm:top-[calc(54.1667vw_+_56px)]">
             <div className="relative w-full max-w-xl rounded-xl border px-4 py-3.5 backdrop-blur-md"
               style={{ background: "linear-gradient(150deg, rgba(23,52,88,0.72), rgba(6,20,38,0.88))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 18px 44px rgba(0,0,0,0.55), inset 0 1px 0 rgba(240,192,96,0.15)" }}>
               <button onClick={dismissCta} className="absolute right-2.5 top-2 text-sm leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss this message">✕</button>
