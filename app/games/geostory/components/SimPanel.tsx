@@ -597,11 +597,12 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           {sheetTab !== null && (
             <div className="gs-sheet-in flex max-h-[72dvh] flex-col border-t backdrop-blur-md max-sm:max-h-none max-sm:min-h-0 max-sm:flex-1"
               style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.90), rgba(4,15,29,0.96))", borderColor: PANEL_BORDER, boxShadow: "0 -18px 44px rgba(0,0,0,0.55), inset 0 1px 0 rgba(240,192,96,0.12)" }}>
-              <div className="flex items-center gap-1 px-2 pt-2 sm:px-3" role="tablist" aria-label="Panel sections">
+              <div className="flex items-center px-2 pt-2 sm:px-3">
+                <div className="flex min-w-0 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Panel sections">
                 {SHEET_TABS.map((t) => (
                   <button key={t.id} role="tab" aria-selected={sheetTab === t.id}
                     onClick={() => setSheetTab(t.id)}
-                    className="rounded-md px-2.5 py-1.5 font-display text-[11px] tracking-[0.14em] sm:px-3"
+                    className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 font-display text-[11px] tracking-[0.14em] sm:px-3"
                     style={{
                       background: sheetTab === t.id ? "rgba(201,150,58,0.20)" : "transparent",
                       color: sheetTab === t.id ? GOLD : "#cbb27a",
@@ -610,7 +611,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                     {t.label}
                   </button>
                 ))}
-                <button onClick={() => setSheetTab(null)} className="ml-auto rounded-md px-2 py-1.5 text-[13px] leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Collapse the panel">▾</button>
+                </div>
+                <button onClick={() => setSheetTab(null)} className="ml-auto shrink-0 rounded-md px-2 py-1.5 text-[13px] leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Collapse the panel">▾</button>
               </div>
               <div className="min-h-0 overflow-y-auto overscroll-contain">
                 {sheetTab === "setup" && (
