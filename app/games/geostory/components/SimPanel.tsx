@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CODE_IDX, COUNTRIES, START_YEAR, fmtGdp, fmtPop } from "../lib/data";
 import {
   CRISIS_REGIONS, DEFAULT_DECK, INFLUENCE_POOL, LEVERS, STRAITS, ZERO_BOOSTS,
   type Boosts, type DeckControls, type Intervention, type LeverId, type SimConfig, type SimEvent, type SimResult,
 } from "../lib/engine";
+import {
+  PACES, eventSiteIdx, isMajorEvent, rankAt, type PaceId,
+} from "../lib/idler";
 import { LAYERS, SCENARIOS, WORLD_MODIFIERS, getScenario, powerColor, type LayerId } from "../lib/scenarios";
 import { WHATIF_TEMPLATES } from "../lib/templates";
 import ExportPanel from "./ExportPanel";
@@ -13,8 +16,10 @@ import MapLegend from "./MapLegend";
 import WorldMap, { type Framing } from "./WorldMap";
 import { copyText } from "./exportKit";
 
-/* aged-atlas event colours — muted enamel, no neon */
-const KIND_STYLE: Record<SimEvent["kind"], string> = {
+/* aged-atlas event colours — muted enamel, no neon. Keyed by string (not
+   the engine's kind union) so new event kinds degrade to a dot, never a
+   build break; kinds without an entry fall back at the render site. */
+const KIND_STYLE: Record<string, string> = {
   annex: "#d1603d",
   shock: "#e0b34e",
   overtake: "#6fa8cf",
@@ -22,6 +27,7 @@ const KIND_STYLE: Record<SimEvent["kind"], string> = {
   focus: "#a8c256",
   crisis: "#a58fd0",
   intervention: "#f0c060",
+  faith: "#c9a0dc",
 };
 /** chronicle entries that get the strong treatment */
 const MAJOR_KINDS = new Set<SimEvent["kind"]>(["overtake", "annex", "crisis", "intervention"]);
@@ -242,14 +248,14 @@ function BoostSliders({ boosts, onSet }: { boosts: Boosts; onSet: (key: keyof Bo
 export interface TransportProps {
   playing: boolean;
   onTogglePlay: () => void;
+  onStep: () => void;
   onReset: () => void;
   year: number;
   yearFloat: number;
   maxYearIdx: number;
   onScrub: (v: number) => void;
-  speed: number;
-  onSpeed: (s: number) => void;
-  speeds: number[];
+  pace: PaceId;
+  onPace: (p: PaceId) => void;
   layer: LayerId;
   onLayer: (l: LayerId) => void;
   terrainArt: boolean;
@@ -262,12 +268,34 @@ export interface TransportProps {
   onGuideOpen: () => void;
 }
 
-type SheetTab = "powers" | "dossier" | "chronicle" | "setup" | "export";
+/* the Idler (Director layer), owned by SimulatorApp and scoped per panel:
+   claimHere is this panel's anchor; a claim living on another sim shows up
+   as claimElsewhere so the chip can offer the jump */
+export interface IdlerProps {
+  claimHere: { code: string; idx: number } | null;
+  claimElsewhere: { code: string; name: string; panelNo: number } | null;
+  onClaim: (idx: number) => void;
+  onReleaseClaim: () => void;
+  onOpenPicker: () => void;
+  onJumpToClaim: () => void;
+  onSuperpower: (idx: number) => void;
+  anchorLog: { id: number; year: number; text: string }[];
+  cinema: boolean;
+  onToggleCinema: () => void;
+  autoCam: boolean;
+  onToggleAutoCam: () => void;
+  holdMajors: boolean;
+  onToggleHoldMajors: () => void;
+  onHoldRequest: (ms: number) => void;
+}
+
+type SheetTab = "powers" | "dossier" | "chronicle" | "highlights" | "setup" | "export";
 
 const SHEET_TABS: { id: SheetTab; label: string }[] = [
   { id: "powers", label: "POWERS" },
   { id: "dossier", label: "DOSSIER" },
   { id: "chronicle", label: "CHRONICLE" },
+  { id: "highlights", label: "HIGHLIGHTS" },
   { id: "setup", label: "SETUP" },
   { id: "export", label: "EXPORT" },
 ];
@@ -306,11 +334,14 @@ interface Props {
   /** stage state: only the active panel shows; the deck renders for it */
   active: boolean;
   transport: TransportProps;
+  idler: IdlerProps;
   panelSwitcher: ReactNode;
   challengeChip: ReactNode;
 }
 
-export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate, terrainArt = true, weather = true, playing = false, onPauseRequest, active, transport: tp, panelSwitcher, challengeChip }: Props) {
+export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFloat, layer, selectedIdx, onSelect, uid, onRemove, onDuplicate, terrainArt = true, weather = true, playing = false, onPauseRequest, active, transport: tp, idler, panelSwitcher, challengeChip }: Props) {
+  const cinema = idler.cinema;
+  const claimIdx = idler.claimHere?.idx ?? null;
   const [seedDraft, setSeedDraft] = useState(cfg.seed);
   const [seedCopied, setSeedCopied] = useState(false);
   useEffect(() => setSeedDraft(cfg.seed), [cfg.seed]);
@@ -347,17 +378,38 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         if (j !== undefined) names.add(COUNTRIES[j].name);
       }
     }
+    if (claimIdx !== null) names.add(COUNTRIES[claimIdx].name);
     for (const r of rivals) {
       const j = CODE_IDX.get(r.code);
       if (j !== undefined) names.add(COUNTRIES[j].name);
     }
     return names;
-  }, [focusIdx, rivals]);
+  }, [focusIdx, rivals, claimIdx]);
   const feedAll = result.events.filter((e) => e.year <= calYear);
   const feedRegional = watchedNames.size
     ? feedAll.filter((e) => { for (const n of watchedNames) if (e.text.includes(n)) return true; return false; })
     : [];
   const feed = (regionOnly && feedRegional.length > 0 ? feedRegional : feedAll).slice(-9).reverse();
+  /* the anchor's own chronicle lines (claims, switches, rank movements),
+     written by SimulatorApp in the brief's voice — merged into the feed */
+  const anchorFeed = claimIdx !== null
+    ? idler.anchorLog.filter((a) => a.year <= calYear).map((a) => ({ year: a.year, text: a.text, anchor: true as const, kind: null as SimEvent["kind"] | null }))
+    : [];
+  const mergedFeed: { year: number; text: string; anchor: boolean; kind: SimEvent["kind"] | null }[] = [
+    ...feed.map((e) => ({ year: e.year, text: e.text, anchor: false, kind: e.kind as SimEvent["kind"] | null })),
+    ...anchorFeed,
+  ].sort((a, b) => b.year - a.year).slice(0, 12);
+
+  /* the claim's standing, for the chip, the standings pin and the dossier */
+  const claimRankNow = claimIdx !== null ? rankAt(result, yearIdx, claimIdx) : null;
+  const claimRankPrev = claimIdx !== null && yearIdx > 0 ? rankAt(result, yearIdx - 1, claimIdx) : null;
+  const claimHolder = claimIdx !== null ? result.years[yearIdx][claimIdx].c : null;
+  /* rank movement vs last year — shape AND colour, so it survives colourblindness */
+  const claimMove = claimRankNow !== null && claimRankPrev !== null
+    ? claimRankNow < claimRankPrev ? { sym: "▲", color: "#7fb069", word: "climbing" }
+      : claimRankNow > claimRankPrev ? { sym: "▼", color: "#d1603d", word: "slipping" }
+      : { sym: "━", color: MUTED, word: "steady" }
+    : null;
 
   const sel = selectedIdx !== null ? result.years[yearIdx][selectedIdx] : null;
   const sel0 = selectedIdx !== null ? result.years[0][selectedIdx] : null;
@@ -444,6 +496,68 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
     }
   }, [calYear, playing, poolLeft, result, winKey, onPauseRequest]);
   const closeWindow = () => { if (winKey) resolvedRef.current.add(winKey); setWinKey(null); };
+
+  /* ── spectacle: when a major event lands during playback, its site gets
+     a pulse on the map. In CINEMA the beat also earns a hold (a clean cut
+     point for an editor) and, with the director camera on, an eased move
+     to the site — then the frame eases back out to the wider shot. All of
+     it is presentation over the same event stream; the engine never knows. */
+  const [pulse, setPulse] = useState<{ idx: number; key: number } | null>(null);
+  const [shot, setShot] = useState<{ idx: number; key: number } | null>(null);
+  const shotTimerRef = useRef<number | null>(null);
+  const { cinema: cinemaOn, holdMajors, autoCam, onHoldRequest } = idler;
+  useEffect(() => {
+    if (!playing) return;
+    const majors = result.events.filter((e) => e.year === calYear && isMajorEvent(e));
+    if (!majors.length) return;
+    const withSite = majors
+      .map((e) => ({ e, site: eventSiteIdx(e) }))
+      .find((x) => x.site !== null);
+    if (withSite && withSite.site !== null) {
+      setPulse({ idx: withSite.site, key: calYear });
+      if (cinemaOn) {
+        if (holdMajors) onHoldRequest(1500);
+        if (autoCam) {
+          setShot({ idx: withSite.site, key: calYear });
+          if (shotTimerRef.current) window.clearTimeout(shotTimerRef.current);
+          shotTimerRef.current = window.setTimeout(() => setShot(null), 4600);
+        }
+      }
+    } else if (cinemaOn && holdMajors) {
+      onHoldRequest(1200); // a world crisis has no single site — the beat still lands
+    }
+  }, [calYear, playing, result, cinemaOn, holdMajors, autoCam, onHoldRequest]);
+  useEffect(() => () => { if (shotTimerRef.current) window.clearTimeout(shotTimerRef.current); }, []);
+
+  /* cinema chrome: the minimal control cluster wakes on pointer activity
+     and fades again, so a recording sees only the world */
+  const [chromeUp, setChromeUp] = useState(true);
+  const [cinemaYear, setCinemaYear] = useState(true);
+  const chromeTimerRef = useRef<number | null>(null);
+  const wakeChrome = useCallback(() => {
+    setChromeUp(true);
+    if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current);
+    chromeTimerRef.current = window.setTimeout(() => setChromeUp(false), 2800);
+  }, []);
+  useEffect(() => {
+    if (!cinemaOn) return;
+    wakeChrome();
+    return () => { if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current); };
+  }, [cinemaOn, wakeChrome]);
+
+  /* ── Highlights: the take plan. The century is deterministic, so every
+     notable beat can be listed before a recording starts — majors, falls,
+     breakaways, and anything that names the focus or the anchor. */
+  const [hlAnchorOnly, setHlAnchorOnly] = useState(false);
+  const highlights = useMemo(() => {
+    const named = new Set<string>();
+    if (focusIdx >= 0) named.add(COUNTRIES[focusIdx].name);
+    if (claimIdx !== null) named.add(COUNTRIES[claimIdx].name);
+    return result.events
+      .filter((e) => isMajorEvent(e) || e.kind === "breakaway" || e.kind === "focus" || [...named].some((n) => e.text.includes(n)))
+      .map((e) => ({ e, site: eventSiteIdx(e), mine: [...named].some((n) => e.text.includes(n)) }));
+  }, [result, focusIdx, claimIdx]);
+  const highlightsShown = hlAnchorOnly ? highlights.filter((h) => h.mine) : highlights;
   const powerOptions = useMemo(() => {
     const row = result.years[yearIdx];
     const idxs = COUNTRIES.map((_, i) => i).filter((i) => row[i].bloc > 0)
@@ -519,7 +633,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const deckSummary = `${[deck.chokepoints && "straits", deck.climate && "climate", deck.pandemics && "plague", deck.rushes && "rushes"].filter(Boolean).length}/4 decks · chaos ×${deck.chaos.toFixed(1)}`;
 
   return (
-    <div className={`absolute inset-0 ${active ? "max-sm:flex max-sm:flex-col max-sm:pt-12" : "hidden"}`} aria-hidden={!active}>
+    <div className={`absolute inset-0 ${active ? (cinema ? "" : "max-sm:flex max-sm:flex-col max-sm:pt-12") : "hidden"}`} aria-hidden={!active}>
       {/* ══ MAP STAGE — the world plate fitted to the screen: contain, never
           cropped; the stage's ocean gradient fills any slack, and the
           wrapper's exact viewBox aspect keeps the weather canvas 1:1.
@@ -527,14 +641,23 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           this wrapper is its first in-flow child — the MAP ZONE, pinned
           directly under the header overlay; the deck below is the UI zone
           and nothing in it ever overlaps the map ══ */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-sm:relative max-sm:left-auto max-sm:top-auto max-sm:shrink-0 max-sm:translate-x-0 max-sm:translate-y-0"
-        style={{ width: "min(100%, calc(100dvh * 960 / 520))", height: "min(100%, calc(100vw * 520 / 960))" }}>
-        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} />
-        <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:max-w-[94%]"
-          style={{ background: "rgba(4,15,29,0.52)" }}>
-          <MapLegend layer={layer} />
-        </div>
-        {banner && (
+      <div className={cinema
+          ? "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-sm:relative max-sm:left-auto max-sm:top-auto max-sm:shrink-0 max-sm:translate-x-0 max-sm:translate-y-0"}
+        style={{
+          width: "min(100%, calc(100dvh * 960 / 520))", height: "min(100%, calc(100vw * 520 / 960))",
+          /* cinema grade: the same atlas, richer — deeper contrast and
+             warmer saturation for footage. Normal view is untouched. */
+          filter: cinema ? "saturate(1.3) contrast(1.07) brightness(1.02)" : undefined,
+        }}>
+        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} claimIdx={claimIdx} pulse={pulse} shot={shot} cinema={cinema} />
+        {!cinema && (
+          <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:max-w-[94%]"
+            style={{ background: "rgba(4,15,29,0.52)" }}>
+            <MapLegend layer={layer} />
+          </div>
+        )}
+        {banner && !cinema && (
           <div key={banner.key} className="pointer-events-none absolute left-1/2 top-14 z-20 w-max max-w-[92%] -translate-x-1/2 rounded-md border px-3 py-1.5 text-center max-sm:hidden"
             style={{ background: "rgba(4,16,30,0.92)", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 28px rgba(0,0,0,0.6)" }}
             role="status">
@@ -542,25 +665,90 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             <span className="block truncate text-[11px]" style={{ color: CREAM }}>{banner.text}</span>
           </div>
         )}
-        <button
-          onClick={() => setFraming(framing === "region" ? "world" : "region")}
-          className="absolute left-2 top-12 z-10 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm max-sm:top-2"
-          style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.5)", color: GOLD }}
-          aria-label={framing === "region" ? "Zoom back to the full world" : "Frame the region"}
-        >
-          {framing === "region" ? "🌐 FULL WORLD" : `◎ FRAME ${scenario.place ?? "REGION"}`}
-        </button>
+        {!cinema && (
+          <button
+            onClick={() => setFraming(framing === "region" ? "world" : "region")}
+            className="absolute left-2 top-12 z-10 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm max-sm:top-2"
+            style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.5)", color: GOLD }}
+            aria-label={framing === "region" ? "Zoom back to the full world" : "Frame the region"}
+          >
+            {framing === "region" ? "🌐 FULL WORLD" : `◎ FRAME ${scenario.place ?? "REGION"}`}
+          </button>
+        )}
       </div>
+
+      {/* ══ CINEMA — the recording surface: no chrome but the world, a
+          whisper of a year readout, and a control cluster that wakes on
+          pointer activity and fades before it can spoil a take ══ */}
+      {active && cinema && (
+        <div className="absolute inset-0 z-30" onMouseMove={wakeChrome} onClick={wakeChrome} role="group" aria-label="Cinema controls">
+          {cinemaYear && (
+            <div className="pointer-events-none absolute bottom-5 left-1/2 -translate-x-1/2 font-display text-2xl tracking-[0.34em]"
+              style={{ color: "rgba(240,192,96,0.9)", textShadow: "0 2px 14px rgba(0,0,0,0.85)", paddingLeft: "0.34em" }}>
+              {calYear}
+            </div>
+          )}
+          <div className={`absolute bottom-4 right-3 flex flex-wrap items-center justify-end gap-1.5 transition-opacity duration-500 sm:right-4 ${chromeUp ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+            <button onClick={tp.onTogglePlay} className="flex h-10 w-10 items-center justify-center rounded-full border font-display text-base backdrop-blur-md"
+              style={{ background: "rgba(4,16,30,0.72)", borderColor: "rgba(240,192,96,0.55)", color: GOLD }}
+              aria-label={tp.playing ? "Pause" : "Play"}>
+              {tp.playing ? "❚❚" : "▶"}
+            </button>
+            <button onClick={tp.onStep} className="flex h-10 w-10 items-center justify-center rounded-full border text-sm backdrop-blur-md"
+              style={{ background: "rgba(4,16,30,0.72)", borderColor: "rgba(201,150,58,0.4)", color: PARCH }}
+              aria-label="Step one year">
+              ⏭
+            </button>
+            <div className="flex overflow-hidden rounded-full border backdrop-blur-md" style={{ borderColor: "rgba(201,150,58,0.4)", background: "rgba(4,16,30,0.72)" }} role="group" aria-label="Pace">
+              {PACES.map((p) => (
+                <button key={p.id} onClick={() => tp.onPace(p.id)} className="px-2.5 py-2 font-display text-[10px] tracking-wider"
+                  style={{ background: tp.pace === p.id ? GOLD_DEEP : "transparent", color: tp.pace === p.id ? "#081426" : PARCH }}
+                  aria-pressed={tp.pace === p.id} title={p.blurb}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <button onClick={idler.onToggleAutoCam} className="rounded-full border px-2.5 py-2 font-display text-[10px] tracking-wider backdrop-blur-md"
+              style={{ background: "rgba(4,16,30,0.72)", borderColor: autoCam ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)", color: autoCam ? GOLD : MUTED }}
+              aria-pressed={autoCam} title="Director camera — eases toward the action as history happens">
+              🎥 CAM {autoCam ? "ON" : "OFF"}
+            </button>
+            <button onClick={idler.onToggleHoldMajors} className="rounded-full border px-2.5 py-2 font-display text-[10px] tracking-wider backdrop-blur-md"
+              style={{ background: "rgba(4,16,30,0.72)", borderColor: holdMajors ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)", color: holdMajors ? GOLD : MUTED }}
+              aria-pressed={holdMajors} title="Hold a beat on major events — a clean cut point for the edit">
+              ⏸ HOLD {holdMajors ? "ON" : "OFF"}
+            </button>
+            <button onClick={() => setCinemaYear((v) => !v)} className="rounded-full border px-2.5 py-2 font-display text-[10px] tracking-wider backdrop-blur-md"
+              style={{ background: "rgba(4,16,30,0.72)", borderColor: cinemaYear ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.35)", color: cinemaYear ? GOLD : MUTED }}
+              aria-pressed={cinemaYear} title="Show or hide the year readout">
+              YEAR {cinemaYear ? "ON" : "OFF"}
+            </button>
+            <button onClick={idler.onToggleCinema} className="rounded-full border px-3 py-2 font-display text-[10px] tracking-wider backdrop-blur-md"
+              style={{ background: "rgba(4,16,30,0.72)", borderColor: "rgba(240,192,96,0.55)", color: GOLD }}
+              aria-label="Exit cinema (Esc or C)">
+              ✕ EXIT
+            </button>
+          </div>
+          {claimIdx !== null && (
+            <div className={`pointer-events-none absolute bottom-4 left-3 transition-opacity duration-500 sm:left-4 ${chromeUp ? "opacity-100" : "opacity-0"}`}>
+              <span className="rounded-full border px-2.5 py-1.5 font-display text-[10px] tracking-[0.16em] backdrop-blur-md"
+                style={{ background: "rgba(4,16,30,0.66)", borderColor: "rgba(240,192,96,0.45)", color: GOLD }}>
+                ⚑ {COUNTRIES[claimIdx].name.toUpperCase()}{claimRankNow !== null ? ` · № ${claimRankNow}` : " · HELD"}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* scrim — tapping the map while the sheet is open collapses it
           (sm+ only: on portrait the sheet lives in the UI zone, the map is
           never covered, and the sheet's own ▾ / PANELS toggle collapses it) */}
-      {active && sheetTab !== null && (
+      {active && sheetTab !== null && !cinema && (
         <button onClick={() => setSheetTab(null)} className="absolute inset-0 z-20 cursor-default max-sm:hidden" aria-label="Collapse the panel" tabIndex={-1} />
       )}
 
       {/* ══ BOTTOM DECK — Turning Point dock, tabbed sheet, transport strip ══ */}
-      {active && (
+      {active && !cinema && (
         <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col max-sm:relative max-sm:inset-auto max-sm:min-h-0 max-sm:flex-1">
           {/* PORTRAIT UI ZONE — on phones the deck is in-flow below the map
               zone (see the root), so the banner gets a slot of its own here:
@@ -714,24 +902,41 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           <ol className="space-y-0.5">
             {leaders.map((l, i) => {
               const gi = COUNTRIES.findIndex((c) => c.code === l.code);
+              const mine = claimIdx !== null && COUNTRIES[claimIdx].code === l.code;
               return (
                 <li key={l.code}>
                   <button onClick={() => onSelect(gi)}
                     className="flex w-full items-center gap-2 rounded px-1.5 py-[3px] text-left text-xs hover:bg-white/5"
                     style={{
                       color: CREAM,
-                      background: i === 0 ? "rgba(201,150,58,0.10)" : undefined,
-                      borderLeft: i === 0 ? "2px solid #f0c060" : "2px solid transparent",
+                      background: mine ? "rgba(240,192,96,0.14)" : i === 0 ? "rgba(201,150,58,0.10)" : undefined,
+                      borderLeft: mine || i === 0 ? "2px solid #f0c060" : "2px solid transparent",
                     }}>
                     <span className="w-5 shrink-0 font-display text-sm" style={{ color: i === 0 ? GOLD : MUTED }}>{String(i + 1).padStart(2, "0")}</span>
                     <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: powerColor(l.code) }} />
                     <span className="truncate">{COUNTRIES[gi].name}</span>
+                    {mine && <span className="shrink-0 font-display text-[9px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ YOUR ANCHOR</span>}
                     <span className="ml-auto font-mono" style={{ color: GOLD }}>{l.power.toFixed(0)}</span>
                   </button>
                 </li>
               );
             })}
             </ol>
+            {claimIdx !== null && !leaders.some((l) => l.code === COUNTRIES[claimIdx].code) && (
+              <button onClick={() => onSelect(claimIdx)}
+                className="mt-1 flex w-full items-center gap-2 rounded border px-1.5 py-[5px] text-left text-xs"
+                style={{ borderColor: "rgba(240,192,96,0.5)", background: "rgba(201,150,58,0.10)", color: CREAM }}>
+                <span className="w-5 shrink-0 font-display text-sm" style={{ color: GOLD }}>{claimRankNow !== null ? String(claimRankNow).padStart(2, "0") : "——"}</span>
+                <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: powerColor(COUNTRIES[claimIdx].code) }} />
+                <span className="truncate">{COUNTRIES[claimIdx].name}</span>
+                <span className="shrink-0 font-display text-[9px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ YOUR ANCHOR</span>
+                <span className="ml-auto font-mono" style={{ color: GOLD }}>
+                  {claimRankNow !== null
+                    ? (result.years[yearIdx][claimIdx].bloc).toFixed(0)
+                    : `HELD BY ${claimHolder !== null ? COUNTRIES[claimHolder].name.toUpperCase() : ""}`}
+                </span>
+              </button>
+            )}
           </div>
           <div>
             {(movers.risers.length > 0 || movers.fallers.length > 0) && (
@@ -771,22 +976,71 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             CHRONICLE
           </SectionHead>
           <ul className="space-y-1.5">
-            {feed.length === 0 && <li className="text-xs" style={{ color: FAINT }}>The world holds its breath… press play.</li>}
-            {feed.map((e, i) => {
-              const major = MAJOR_KINDS.has(e.kind);
+            {mergedFeed.length === 0 && <li className="text-xs" style={{ color: FAINT }}>The world holds its breath… press play.</li>}
+            {mergedFeed.map((e, i) => {
+              const major = e.kind !== null && MAJOR_KINDS.has(e.kind);
               return (
-                <li key={`${e.year}-${i}`} className={`flex gap-2 text-[11px] leading-snug ${major ? "font-semibold" : ""}`}
+                <li key={`${e.year}-${i}`} className={`flex gap-2 text-[11px] leading-snug ${major || e.anchor ? "font-semibold" : ""}`}
                   style={{
-                    color: major ? CREAM : PARCH,
-                    borderLeft: e.kind === "intervention" ? "2px solid rgba(240,192,96,0.65)" : "2px solid transparent",
-                    paddingLeft: e.kind === "intervention" ? 6 : 2,
+                    color: major || e.anchor ? CREAM : PARCH,
+                    borderLeft: e.anchor || e.kind === "intervention" ? "2px solid rgba(240,192,96,0.65)" : "2px solid transparent",
+                    paddingLeft: e.anchor || e.kind === "intervention" ? 6 : 2,
                   }}>
                   <span className="w-8 shrink-0 font-display text-[13px] leading-none" style={{ color: GOLD }}>{e.year}</span>
-                  <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: KIND_STYLE[e.kind] }} />
+                  {e.anchor
+                    ? <span className="shrink-0 text-[10px] leading-[1.4]" style={{ color: GOLD }} aria-hidden>⚑</span>
+                    : <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.kind ? KIND_STYLE[e.kind] : FAINT }} />}
                   <span>{e.text}</span>
                 </li>
               );
             })}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* HIGHLIGHTS tab — the take plan: every notable beat of the century,
+          listed up front because the run is deterministic. Jump the
+          playhead to a beat, frame it in Cinema, record the take. */}
+      {sheetTab === "highlights" && (
+        <div className="px-4 py-3">
+          <div className="mx-auto max-w-3xl">
+            <SectionHead right={(
+              <button onClick={() => setHlAnchorOnly((v) => !v)} className="rounded border px-1.5 py-0.5 text-[9px] tracking-[0.14em]"
+                style={{ borderColor: "rgba(201,150,58,0.4)", color: hlAnchorOnly ? GOLD : MUTED }}
+                title="Show only the beats that name the boosted power or your anchor">
+                {hlAnchorOnly ? "⚑ ANCHOR & FOCUS" : "○ ALL BEATS"}
+              </button>
+            )}>
+              HIGHLIGHTS — {highlightsShown.length} BEATS
+            </SectionHead>
+            <p className="mb-2 text-[11px] leading-relaxed" style={{ color: FAINT }}>
+              Same seed, same century — every beat below will happen, in this order. Jump to one,
+              press C for Cinema, and record the take. 🎬 Cinema holds a beat on the majors for a clean cut.
+            </p>
+            <ul className="space-y-1">
+              {highlightsShown.map(({ e, site, mine }, i) => {
+                const reached = e.year <= calYear;
+                return (
+                  <li key={`${e.year}-${i}`} className="flex items-center gap-2 text-[11px] leading-snug"
+                    style={{ color: reached ? PARCH : FAINT }}>
+                    <span className="w-8 shrink-0 font-display text-[13px] leading-none" style={{ color: reached ? GOLD : FAINT }}>{e.year}</span>
+                    <span className="mt-0 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: KIND_STYLE[e.kind] }} />
+                    <span className={`min-w-0 flex-1 ${isMajorEvent(e) ? "font-semibold" : ""}`} style={{ color: isMajorEvent(e) && reached ? CREAM : undefined }}>
+                      {mine && <span style={{ color: GOLD }}>⚑ </span>}{e.text}
+                    </span>
+                    <button onClick={() => { tp.onScrub(e.year - START_YEAR); if (site !== null) onSelect(site); }}
+                      className="shrink-0 rounded border px-2 py-1 text-[10px] font-semibold tracking-wider hover:opacity-80"
+                      style={{ borderColor: "rgba(240,192,96,0.5)", color: GOLD }}
+                      aria-label={`Jump the timeline to ${e.year}`}>
+                      ▶ JUMP
+                    </button>
+                  </li>
+                );
+              })}
+              {highlightsShown.length === 0 && (
+                <li className="text-xs" style={{ color: FAINT }}>No beats match — claim a nation or boost a power and its story will fill this list.</li>
+              )}
             </ul>
           </div>
         </div>
@@ -869,6 +1123,38 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             )}
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
+            {claimIdx === selectedIdx ? (
+              <>
+                <span className="flex items-center rounded border px-2.5 py-1.5 font-display text-[11px] tracking-[0.14em]"
+                  style={{ borderColor: "rgba(240,192,96,0.65)", color: GOLD, background: "rgba(201,150,58,0.12)" }}>
+                  ⚑ YOUR ANCHOR
+                </span>
+                <button
+                  onClick={idler.onReleaseClaim}
+                  className="rounded border px-2.5 py-1.5 text-[11px] font-semibold tracking-wider hover:opacity-80"
+                  style={{ borderColor: "rgba(147,167,189,0.4)", color: PARCH }}
+                >
+                  RELEASE
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => { if (selectedIdx !== null) idler.onClaim(selectedIdx); }}
+                className="rounded px-2.5 py-1.5 text-[11px] font-bold tracking-wider"
+                style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426" }}
+                title="Anchor this run to this nation — its fortunes become the score, and the world keeps turning at your pace while you're away"
+              >
+                ⚑ CLAIM AS YOUR ANCHOR
+              </button>
+            )}
+            <button
+              onClick={() => { if (selectedIdx !== null) idler.onSuperpower(selectedIdx); }}
+              className="rounded border px-2.5 py-1.5 text-[11px] font-semibold tracking-wider hover:opacity-85"
+              style={{ borderColor: "rgba(240,192,96,0.55)", color: GOLD, background: "rgba(201,150,58,0.07)" }}
+              title="One-click what-if: this nation gets everything — growth, tech, arms, resources — and the run restarts at 2026, running at Brisk"
+            >
+              🚀 SUPERPOWER RUN
+            </button>
             {!selIsFocus && (
               <button
                 onClick={() => onCfg({ ...cfg, focusCode: selGeo.code, boosts: cfg.boosts === ZERO_BOOSTS ? { growth: 55, tech: 60, military: 50, resources: 45 } : cfg.boosts })}
@@ -999,6 +1285,15 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 {tp.playing ? "❚❚" : "▶"}
               </button>
               <button
+                onClick={tp.onStep}
+                className="shrink-0 rounded-md border px-2 py-1.5 text-[13px] leading-none hover:opacity-80"
+                style={{ borderColor: "rgba(201,150,58,0.4)", color: "#cbb27a" }}
+                aria-label="Step one year"
+                title="Step one year"
+              >
+                ⏭
+              </button>
+              <button
                 onClick={tp.onReset}
                 className="shrink-0 rounded-md border px-2 py-1.5 text-[13px] leading-none hover:opacity-80"
                 style={{ borderColor: "rgba(201,150,58,0.4)", color: "#cbb27a" }}
@@ -1017,18 +1312,50 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 className="gs-range min-w-[64px] flex-1"
                 aria-label="Year scrubber"
               />
-              <div className="flex shrink-0 overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Playback speed">
-                {tp.speeds.map((s) => (
-                  <button key={s} onClick={() => tp.onSpeed(s)} className="px-2 py-1.5 font-mono text-[11px]"
-                    style={{ background: tp.speed === s ? "#c9963a" : "transparent", color: tp.speed === s ? "#081426" : "#cbb27a" }}
-                    aria-label={`Playback speed ${s} times`}
-                    aria-pressed={tp.speed === s}>
-                    {s}×
+              <div className="flex shrink-0 overflow-hidden rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Pace — how fast time flows, here and while you're away">
+                {PACES.map((p) => (
+                  <button key={p.id} onClick={() => tp.onPace(p.id)} className="px-2 py-1.5 font-display text-[10px] tracking-wider"
+                    style={{ background: tp.pace === p.id ? "#c9963a" : "transparent", color: tp.pace === p.id ? "#081426" : "#cbb27a" }}
+                    title={p.blurb}
+                    aria-label={`Pace: ${p.label}`}
+                    aria-pressed={tp.pace === p.id}>
+                    <span className="max-sm:hidden">{p.label}</span><span className="sm:hidden">{p.short}</span>
                   </button>
                 ))}
               </div>
               </div>
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:contents sm:overflow-visible sm:pb-0">
+              {idler.claimHere ? (
+                <button onClick={() => { onSelect(idler.claimHere!.idx); setSheetTab("dossier"); }}
+                  className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
+                  style={{ borderColor: "rgba(240,192,96,0.7)", background: "rgba(201,150,58,0.16)" }}
+                  title={`Your anchor — ${COUNTRIES[idler.claimHere.idx].name}. Tap to inspect it.`}
+                  aria-label={`Your anchor, ${COUNTRIES[idler.claimHere.idx].name}${claimRankNow !== null ? `, ranked ${claimRankNow}` : ", held by another power"}`}>
+                  <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: powerColor(idler.claimHere.code) }} />
+                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>
+                    ⚑ {COUNTRIES[idler.claimHere.idx].name.toUpperCase()} · {claimRankNow !== null ? `№ ${claimRankNow}` : "HELD"}
+                  </span>
+                  {claimMove && <span className="text-[10px]" style={{ color: claimMove.color }} aria-label={claimMove.word}>{claimMove.sym}</span>}
+                </button>
+              ) : idler.claimElsewhere ? (
+                <button onClick={idler.onJumpToClaim}
+                  className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
+                  style={{ borderColor: "rgba(201,150,58,0.4)", background: "rgba(201,150,58,0.06)" }}
+                  title={`Your anchor, ${idler.claimElsewhere.name}, anchors SIM ${idler.claimElsewhere.panelNo} — tap to go to that world`}
+                  aria-label={`Your anchor ${idler.claimElsewhere.name} is in sim ${idler.claimElsewhere.panelNo} — jump to it`}>
+                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: "#cbb27a" }}>
+                    ⚑ {idler.claimElsewhere.name.toUpperCase()} — SIM {idler.claimElsewhere.panelNo} →
+                  </span>
+                </button>
+              ) : (
+                <button onClick={idler.onOpenPicker}
+                  className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
+                  style={{ borderColor: "rgba(240,192,96,0.65)", background: "rgba(201,150,58,0.10)" }}
+                  title="The Idler: anchor this run to one nation, set its pace, and the world keeps turning while you're away"
+                  aria-label="Claim a nation — open the Idler">
+                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ CLAIM A NATION</span>
+                </button>
+              )}
               <span className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
                 style={{ borderColor: "rgba(240,192,96,0.5)", background: "rgba(201,150,58,0.10)" }}
                 title="Influence points — spend them at turning points: each decade, and after major shocks">
@@ -1100,6 +1427,16 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 aria-label="Toggle the ambient weather overlay"
               >
                 ☁ WEATHER
+              </button>
+              <button
+                onClick={idler.onToggleCinema}
+                className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
+                style={{ borderColor: "rgba(240,192,96,0.55)", color: GOLD, background: "rgba(201,150,58,0.08)" }}
+                aria-pressed={cinema}
+                aria-label="Cinema view — hide all chrome and record the simulation (C)"
+                title="Cinema view — the clean recording surface: no chrome, director camera, holds on the majors (C)"
+              >
+                🎬 CINEMA
               </button>
               <button
                 onClick={tp.onModelOpen}

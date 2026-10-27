@@ -302,6 +302,27 @@ body::after {
   height: 4px; border-radius: 2px; background: #2c4a73;
 }
 
+/* GeoStory cinema view: the site nav bows out entirely (SimulatorApp
+   toggles the class on <body> while cinema is on) so the stage is a clean
+   recording surface */
+body.gs-cinema nav {
+  display: none !important;
+}
+/* spectacle flash: a subtle gold breath at the frame's edge when a major
+   event lands — emphasis a viewer feels without any text */
+.gs-flash {
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(240, 192, 96, 0.30) 100%);
+  animation: gs-flash 1.15s ease-out forwards;
+}
+@keyframes gs-flash {
+  0% { opacity: 0; }
+  16% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gs-flash { animation: none; opacity: 0; }
+}
+
 /* compare-mode divergence outline: a slow cream pulse, in-identity */
 /* GeoStory bottom sheet — rises over the map; no motion at all when the
    visitor prefers reduced motion (the sheet simply appears) */

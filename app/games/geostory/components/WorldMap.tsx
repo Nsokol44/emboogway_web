@@ -94,6 +94,20 @@ function regionBox(idx: number): Box {
   };
 }
 
+/** the director camera's shot: a tighter frame centred on the action.
+ *  Clamped inside the plate, so the site stays in the middle band of the
+ *  frame — the band a 9:16 crop keeps — wherever geography allows. */
+function shotBox(idx: number): Box {
+  const c = COUNTRIES[idx];
+  const w = WORLD.width * 0.40;
+  const h = (w * WORLD.height) / WORLD.width;
+  return {
+    x: clampN(c.cx - w / 2, 0, WORLD.width - w),
+    y: clampN(c.cy - h / 2, 0, WORLD.height - h),
+    w, h,
+  };
+}
+
 /** small engraved compass rose, drawn in map coordinates */
 function CompassRose({ cx, cy, r }: { cx: number; cy: number; r: number }) {
   const spikes = Array.from({ length: 8 }, (_, k) => {
@@ -136,9 +150,17 @@ interface Props {
   /** P1b — when set, draw influence-flow arcs into this power from the
       countries it pulls hardest (thickness ∝ the engine's gravity value) */
   flowIdx?: number | null;
+  /** the Idler's anchor — a persistent gold-dashed outline + pennant */
+  claimIdx?: number | null;
+  /** spectacle pulse at a major event's site (key re-triggers the ring) */
+  pulse?: { idx: number; key: number } | null;
+  /** the cinema director camera's current shot (overrides framing) */
+  shot?: { idx: number; key: number } | null;
+  /** cinema presentation: richer washes, slower camera glides */
+  cinema?: boolean;
 }
 
-export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null, terrainArt = true, weather = true, flowIdx = null }: Props) {
+export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null, terrainArt = true, weather = true, flowIdx = null, claimIdx = null, pulse = null, shot = null, cinema = false }: Props) {
   const yearIdx = Math.max(0, Math.min(result.years.length - 1, Math.floor(yearFloat)));
   const flips = useMemo(() => computeFlips(result), [result]);
   const leaderCode = result.leaders[yearIdx]?.[0]?.code;
@@ -187,17 +209,22 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
 
   const activeFlips = flips.filter((f) => yearFloat >= f.year && yearFloat < f.year + 2);
 
-  /* animated viewBox (glide between world and region framing) */
+  /* animated viewBox (glide between world and region framing; a cinema
+     shot overrides both, and cinema moves take their time — a slow ease
+     reads as a camera, a fast one as a jump cut) */
   const [box, setBox] = useState<Box>(WORLD_BOX);
   const boxRef = useRef<Box>(WORLD_BOX);
   useEffect(() => {
-    const target = framing === "region" && frameIdx !== null && frameIdx >= 0 ? regionBox(frameIdx) : WORLD_BOX;
+    const target = shot
+      ? shotBox(shot.idx)
+      : framing === "region" && frameIdx !== null && frameIdx >= 0 ? regionBox(frameIdx) : WORLD_BOX;
     const from = { ...boxRef.current };
     if (from.x === target.x && from.y === target.y && from.w === target.w) return;
+    const duration = cinema ? 1200 : 450;
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / 450);
+      const t = Math.min(1, (now - start) / duration);
       const e = 1 - Math.pow(1 - t, 3);
       const b: Box = {
         x: from.x + (target.x - from.x) * e,
@@ -211,7 +238,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [framing, frameIdx]);
+  }, [framing, frameIdx, shot, cinema]);
 
   const compassR = box.w * 0.030;
   const compassX = box.x + box.w - compassR * 2.1;
@@ -228,12 +255,22 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
   }, [terrainArt]);
   const showTerrain = terrainArt && terrainUrl !== null;
   /** fill opacity for the country washes: 1 = today's flat atlas;
-      with terrain beneath, power reads as a wash and the ground shows */
+      with terrain beneath, power reads as a wash and the ground shows.
+      Cinema runs the washes richer so footage reads saturated. */
   const washOpacity = layer === "terrain" ? 0
     : !showTerrain ? 1
-    : layer === "territory" ? 0.58
-    : layer === "tech" ? 0.6
-    : 0.62;
+    : layer === "territory" ? (cinema ? 0.8 : 0.58)
+    : layer === "tech" ? (cinema ? 0.78 : 0.6)
+    : (cinema ? 0.8 : 0.62);
+
+  /* the spectacle pulse lives ~1.7s per trigger, then clears itself */
+  const [pulseKey, setPulseKey] = useState<number | null>(null);
+  useEffect(() => {
+    if (!pulse) return;
+    setPulseKey(pulse.key);
+    const t = setTimeout(() => setPulseKey((k) => (k === pulse.key ? null : k)), 1700);
+    return () => clearTimeout(t);
+  }, [pulse]);
   const getBox = useCallback(() => boxRef.current, []);
 
   return (
@@ -296,7 +333,10 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
           if (d > maxD) maxD = d;
           return d;
         });
-        const progress = (yearFloat - f.year) / 2; // 0..1 over two years
+        const rawProgress = (yearFloat - f.year) / 2; // 0..1 over two years
+        /* ease-out: the wave breaks quickly at the border, then settles
+           across the interior — conquest ripples, it doesn't pop */
+        const progress = 1 - Math.pow(1 - rawProgress, 2);
         const newFill = countryFill(result, yearIdx, f.country, layer, leaderIdx);
         const oldSnap = result.years[Math.max(0, f.year - 1)][f.country];
         const oldSrc = layer === "territory" ? oldSnap.c : layer === "influence" ? oldSnap.i : layer === "economic" ? oldSnap.e : f.country;
@@ -388,6 +428,34 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         </>
       )}
 
+      {/* the Idler's anchor — a dashed gold frontier and a small pennant,
+          so a claimed nation can be followed at a glance (and on footage) */}
+      {claimIdx !== null && claimIdx >= 0 && (
+        <g pointerEvents="none">
+          <path d={COUNTRIES[claimIdx].path} fill="none" stroke="#f0c060" strokeWidth="1.7" strokeDasharray="7 4" opacity="0.95" />
+          <line x1={COUNTRIES[claimIdx].cx} y1={COUNTRIES[claimIdx].cy} x2={COUNTRIES[claimIdx].cx} y2={COUNTRIES[claimIdx].cy - 13} stroke="#f0c060" strokeWidth="1.3" />
+          <polygon points={`${COUNTRIES[claimIdx].cx},${COUNTRIES[claimIdx].cy - 13} ${COUNTRIES[claimIdx].cx + 8},${COUNTRIES[claimIdx].cy - 10.4} ${COUNTRIES[claimIdx].cx},${COUNTRIES[claimIdx].cy - 7.8}`} fill="#f0c060" />
+        </g>
+      )}
+
+      {/* spectacle: a major event's site rings outward — an eye-catcher
+          that reads on footage without a word of text */}
+      {pulse && pulseKey === pulse.key && (
+        <g key={pulse.key} pointerEvents="none">
+          <circle cx={COUNTRIES[pulse.idx].cx} cy={COUNTRIES[pulse.idx].cy} r="5" fill="none" stroke="#ffd977" strokeWidth="2.2">
+            <animate attributeName="r" from="5" to="54" dur="1.5s" begin="0s" repeatCount="1" />
+            <animate attributeName="opacity" from="0.95" to="0" dur="1.5s" begin="0s" repeatCount="1" />
+          </circle>
+          <circle cx={COUNTRIES[pulse.idx].cx} cy={COUNTRIES[pulse.idx].cy} r="4" fill="none" stroke="#f0c060" strokeWidth="1.6">
+            <animate attributeName="r" from="4" to="38" dur="1.4s" begin="0.3s" repeatCount="1" />
+            <animate attributeName="opacity" from="0.85" to="0" dur="1.4s" begin="0.3s" repeatCount="1" />
+          </circle>
+          <circle cx={COUNTRIES[pulse.idx].cx} cy={COUNTRIES[pulse.idx].cy} r="3.4" fill="#ffd977">
+            <animate attributeName="opacity" from="0.95" to="0" dur="1.1s" begin="0s" repeatCount="1" />
+          </circle>
+        </g>
+      )}
+
       <CompassRose cx={compassX} cy={compassY} r={compassR} />
 
       {/* generous tap targets for small countries */}
@@ -397,6 +465,12 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         </circle>
       ))}
     </svg>
+
+    {/* screen-level emphasis on a major event — a breath of gold at the
+        frame's edge, timed with the site ring inside the map */}
+    {pulse && pulseKey === pulse.key && (
+      <div key={`flash-${pulse.key}`} className="gs-flash pointer-events-none absolute inset-0 z-10" aria-hidden />
+    )}
 
     {/* the sky — ambient weather above the washes, below the chrome */}
     {weather && <WeatherOverlay result={result} yearIdx={yearIdx} getBox={getBox} />}
