@@ -39,7 +39,7 @@ export const PACES: PaceDef[] = [
   },
   {
     id: "brisk", label: "BRISK", short: "BRISK", yearsPerSecond: 2, awayYearsPerHour: 12,
-    blurb: "A year every 2 seconds while you watch — and about twelve years an hour while you're away.",
+    blurb: "Two years a second while you watch — and about twelve years an hour while you're away.",
   },
 ];
 
