@@ -10,6 +10,7 @@ import {
   PACES, eventSiteIdx, isMajorEvent, rankAt, type PaceId,
 } from "../lib/idler";
 import { LAYERS, SCENARIOS, WORLD_MODIFIERS, getScenario, powerColor, type LayerId } from "../lib/scenarios";
+import { FAITHS } from "../lib/religion";
 import { WHATIF_TEMPLATES } from "../lib/templates";
 import ExportPanel from "./ExportPanel";
 import MapLegend from "./MapLegend";
@@ -39,6 +40,53 @@ const FAINT = "#5f748c";
 const GOLD = "#f0c060";
 const GOLD_DEEP = "#c9963a";
 const PANEL_BORDER = "rgba(201,150,58,0.30)";
+/** cyan = the player's claim, app-wide ("cyan = mine"); gold is for
+    transient emphasis (selection, hover) and readouts only */
+const CLAIM = "#22d3ee";
+
+/* ------------------------------------------------------ notifications */
+/** One item in the live inbox. Turning Points carry an actionable
+ *  intervention form while "open"; left behind by the playhead they
+ *  resolve as "passed" and the item records that. Events are the
+ *  century's loudest moments, newest first. The chronicle remains the
+ *  permanent record — this is the inbox, and it never pauses the run. */
+interface NoteItem {
+  id: string;
+  kind: "turning" | "event";
+  year: number;
+  title: string;
+  siteIdx: number | null;
+  anchor: boolean;
+  status: "open" | "passed" | "spent" | "seen";
+  winKey?: string;
+  bornAt: number;
+}
+
+let sharedAudio: AudioContext | null = null;
+/** a short, tasteful two-note chime for a fresh notification. Best
+ *  effort only — silenced by the strip toggle, and skipped when the
+ *  visitor prefers reduced motion (the detectable sensory proxy). */
+function chime(enabled: boolean) {
+  if (!enabled) return;
+  try {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    sharedAudio ??= new AudioContext();
+    if (sharedAudio.state === "suspended") void sharedAudio.resume();
+    const t = sharedAudio.currentTime;
+    const osc = sharedAudio.createOscillator();
+    const gain = sharedAudio.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(987.77, t);
+    osc.frequency.setValueAtTime(1318.51, t + 0.09);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.06, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+    osc.connect(gain);
+    gain.connect(sharedAudio.destination);
+    osc.start(t);
+    osc.stop(t + 0.4);
+  } catch { /* audio is a garnish, never a blocker */ }
+}
 
 function Sparkline({ series, color, currentIdx, marks }: { series: number[]; color: string; currentIdx?: number; marks?: number[] }) {
   const min = Math.min(...series), max = Math.max(...series);
@@ -114,12 +162,15 @@ function ChaosSlider({ chaos, onCommit }: { chaos: number; onCommit: (v: number)
   );
 }
 
-/* P1a — the intervention bar: appears at turning points (each decade, and
-   after major shocks) with the run paused. Spending writes an Intervention
-   into the run config, so the altered history reproduces exactly. */
-function InterventionBar({ year, pool, options, selectedIdx, onSpend, onDone }: {
+/* P1a — the intervention bar: the actionable body of a Turning Point
+   notification (each decade, and after major shocks). The run does NOT
+   pause for it — the item lives in the notifications inbox until acted
+   on or left behind. Spending writes an Intervention into the run
+   config, so the altered history reproduces exactly. */
+function InterventionBar({ year, pool, spent, options, selectedIdx, onSpend, onDone }: {
   year: number;
   pool: number;
+  spent: number;
   options: { idx: number; code: string; name: string }[];
   selectedIdx: number | null;
   onSpend: (inv: Intervention) => void;
@@ -143,14 +194,27 @@ function InterventionBar({ year, pool, options, selectedIdx, onSpend, onDone }: 
     else if (lever.id === "crisis") t = region;
     onSpend({ year, lever: lever.id, target: t, cost: lever.cost });
   };
+  // the spend button states cost AND effect in plain words, generated
+  // from the actual lever + target chosen — no unexplained numbers
+  const nameOf = (code: string) => options.find((o) => o.code === code)?.name ?? (CODE_IDX.get(code) !== undefined ? COUNTRIES[CODE_IDX.get(code)!].name : code);
+  const effect =
+    lever.id === "tech" ? `give ${nameOf(target)} a decade of accelerated research` :
+    lever.id === "stability" ? `hold ${nameOf(target)}'s stability up for a decade` :
+    lever.id === "trade" ? `tilt ${nameOf(target)}'s trade ${toward ? `toward ${nameOf(targetB)}` : `away from ${nameOf(targetB)}`} for 15 years` :
+    lever.id === "chokepoint" ? `harden the ${STRAITS.find((s) => s.id === strait)?.label ?? strait}, so closures bite 65% less for 20 years` :
+    `unleash a bounded crisis across ${CRISIS_REGIONS.find((r) => r.key === region)?.label ?? region}`;
   return (
-    <div className="mx-2 mb-2 rounded-lg border px-3.5 py-3 sm:mx-3 max-sm:px-3 max-sm:py-2.5" role="group" aria-label={`Intervention window, ${year}`}
+    <div className="rounded-lg border px-3.5 py-3 max-sm:px-3 max-sm:py-2.5" role="group" aria-label={`Intervention window, ${year}`}
       style={{ background: "linear-gradient(160deg, rgba(201,150,58,0.14), rgba(6,20,38,0.7))", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(240,192,96,0.25)" }}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-display text-sm tracking-[0.18em] max-sm:text-[13px]" style={{ color: GOLD }}>⚑ TURNING POINT — {year}</span>
-        <span className="text-[11px]" style={{ color: PARCH }}>Influence left: <strong style={{ color: GOLD }}>{pool}</strong> — history pauses. Spend it, or let the moment pass.</span>
+        <span className="text-[11px]" style={{ color: PARCH }}>The run keeps turning — act here, or let the moment pass.</span>
         <button onClick={onDone} className="ml-auto rounded border px-2.5 py-1 text-[11px] font-semibold tracking-wider hover:opacity-80"
-          style={{ borderColor: "rgba(147,167,189,0.45)", color: PARCH }}>DONE — LET IT PASS</button>
+          style={{ borderColor: "rgba(147,167,189,0.45)", color: PARCH }}>LET IT PASS</button>
+      </div>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[10.5px]" style={{ color: MUTED }}>
+        <span>Influence is this run&apos;s steering budget, earned once and spent at moments like this.</span>
+        <span className="font-display tracking-[0.1em]" style={{ color: PARCH }}>EARNED {INFLUENCE_POOL} · SPENT {spent} · BALANCE {pool} ⚑</span>
       </div>
       <div className="mt-2.5 flex flex-wrap gap-1.5 max-sm:mt-2" role="group" aria-label="Choose a lever">
         {LEVERS.map((l) => {
@@ -212,13 +276,66 @@ function InterventionBar({ year, pool, options, selectedIdx, onSpend, onDone }: 
           </select>
         )}
         <button onClick={spend} disabled={!canAfford}
-          className="rounded px-3 py-1.5 text-[11px] font-bold tracking-wider disabled:opacity-40"
+          className="max-w-full rounded px-3 py-1.5 text-left text-[11px] font-bold leading-snug tracking-wider disabled:opacity-40"
           style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426" }}>
-          SPEND {lever.cost} ⚑
+          SPEND {lever.cost} ⚑ — {effect}
         </button>
         {pool === 0 && <span className="text-[11px]" style={{ color: FAINT }}>The pool is spent — this century is on its own now.</span>}
       </div>
     </div>
+  );
+}
+
+/** the notifications inbox list — shared by the desktop rail and the
+ *  mobile NOTES sheet tab. Open Turning Points render their live
+ *  intervention form; everything else is a record card (anchor items
+ *  in cyan, newest first, list capped upstream). */
+function NotesList({ notes, pool, spent, options, selectedIdx, onSpend, onPass, onFocus }: {
+  notes: NoteItem[]; pool: number; spent: number;
+  options: { idx: number; code: string; name: string }[];
+  selectedIdx: number | null;
+  onSpend: (note: NoteItem, inv: Intervention) => void;
+  onPass: (note: NoteItem) => void;
+  onFocus: (idx: number) => void;
+}) {
+  if (!notes.length) {
+    return (
+      <p className="px-1 py-2 text-[11px] leading-relaxed" style={{ color: FAINT }}>
+        Nothing yet. Turning Points and the century&apos;s loudest moments arrive here — the run never
+        pauses for them. Act on a Turning Point while its year is live, or let it pass and the item
+        records that it did.
+      </p>
+    );
+  }
+  return (
+    <ol className="space-y-2">
+      {notes.map((n) => n.kind === "turning" && n.status === "open" ? (
+        <li key={n.id}>
+          <InterventionBar year={n.year} pool={pool} spent={spent} options={options} selectedIdx={selectedIdx}
+            onSpend={(inv) => onSpend(n, inv)} onDone={() => onPass(n)} />
+        </li>
+      ) : (
+        <li key={n.id} className="rounded-lg border px-3 py-2"
+          style={{ borderColor: n.anchor ? "rgba(34,211,238,0.55)" : "rgba(147,167,189,0.25)", background: n.anchor ? "rgba(34,211,238,0.07)" : "rgba(6,20,38,0.5)" }}>
+          <div className="flex items-baseline gap-2">
+            <span className="font-display text-[10px] tracking-[0.18em]" style={{ color: n.anchor ? CLAIM : MUTED }}>{n.year}</span>
+            {n.anchor && <span className="font-display text-[9px] tracking-[0.14em]" style={{ color: CLAIM }}>⚑ YOUR ANCHOR</span>}
+            <span className="ml-auto shrink-0 font-display text-[9px] tracking-[0.14em]" style={{ color: FAINT }}>
+              {n.kind === "turning" ? (n.status === "spent" ? "INFLUENCE SPENT" : "LET IT PASS") : "EVENT"}
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11.5px] leading-snug" style={{ color: n.status === "passed" ? MUTED : PARCH }}>
+            {n.title}{n.kind === "turning" && n.status === "passed" ? " — the moment went by unacted." : ""}
+          </p>
+          {n.siteIdx !== null && (
+            <button onClick={() => onFocus(n.siteIdx!)} className="mt-1 text-[10.5px] font-semibold tracking-wide hover:opacity-80"
+              style={{ color: n.anchor ? CLAIM : GOLD }} aria-label={`Show ${COUNTRIES[n.siteIdx]?.name} on the map`}>
+              ◎ SHOW ON THE MAP
+            </button>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -289,10 +406,11 @@ export interface IdlerProps {
   onHoldRequest: (ms: number) => void;
 }
 
-type SheetTab = "powers" | "dossier" | "chronicle" | "highlights" | "setup" | "export";
+type SheetTab = "powers" | "notes" | "dossier" | "chronicle" | "highlights" | "setup" | "export";
 
 const SHEET_TABS: { id: SheetTab; label: string }[] = [
   { id: "powers", label: "POWERS" },
+  { id: "notes", label: "NOTES" },
   { id: "dossier", label: "DOSSIER" },
   { id: "chronicle", label: "CHRONICLE" },
   { id: "highlights", label: "HIGHLIGHTS" },
@@ -307,6 +425,7 @@ const LAYER_SHORT: Record<LayerId, string> = {
   economic: "ECONOMIC",
   tech: "TECH",
   terrain: "TERRAIN",
+  religion: "RELIGION",
 };
 
 interface Props {
@@ -329,7 +448,8 @@ interface Props {
   weather?: boolean;
   /** playback state, owned by SimulatorApp's shared transport */
   playing?: boolean;
-  /** ask the transport to pause (an intervention window just opened) */
+  /** retained for API compatibility — notifications no longer pause
+      the run, so the panel never calls this */
   onPauseRequest?: () => void;
   /** stage state: only the active panel shows; the deck renders for it */
   active: boolean;
@@ -437,29 +557,58 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
     };
   }, [result, yearIdx]);
 
-  /* ---- P1a: intervention windows + the influence pool ------------------- */
+  /* ---- P1a: interventions + the influence pool ------------------------- */
   const interventions = cfg.interventions ?? [];
-  const poolLeft = Math.max(0, INFLUENCE_POOL - interventions.reduce((s, v) => s + v.cost, 0));
-  const [winKey, setWinKey] = useState<string | null>(null);
+  const spentTotal = interventions.reduce((s, v) => s + v.cost, 0);
+  const poolLeft = Math.max(0, INFLUENCE_POOL - spentTotal);
   const resolvedRef = useRef<Set<string>>(new Set());
+
+  /* ---- notifications: the live inbox (playtest redesign). Turning
+     Points and major events arrive as items; the run NEVER pauses for
+     them and there is no modal. An open Turning Point the playhead
+     leaves behind resolves as "let it pass", recorded on the item.
+     The chronicle stays the permanent record; this is the inbox. */
+  const [notes, setNotes] = useState<NoteItem[]>([]);
+  const notesRef = useRef<NoteItem[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [railOpen, setRailOpen] = useState(true);
+  const [chimeOn, setChimeOn] = useState(() => { try { return localStorage.getItem("gs-chime") !== "off"; } catch { return true; } });
+  const [animationsOn, setAnimationsOn] = useState(() => { try { return localStorage.getItem("gs-animations") !== "off"; } catch { return true; } });
+  const setNotesBoth = useCallback((next: NoteItem[]) => { notesRef.current = next; setNotes(next); }, []);
+  const pushNote = useCallback((n: NoteItem) => {
+    const all = [n, ...notesRef.current];
+    const open = all.filter((x) => x.kind === "turning" && x.status === "open");
+    const rest = all.filter((x) => !(x.kind === "turning" && x.status === "open")).slice(0, Math.max(0, 30 - open.length));
+    setNotesBoth([...open, ...rest]);
+    setUnread((u) => u + 1);
+  }, [setNotesBoth]);
+  const markNote = useCallback((id: string, status: NoteItem["status"]) => {
+    setNotesBoth(notesRef.current.map((n) => (n.id === id ? { ...n, status } : n)));
+  }, [setNotesBoth]);
+  const spendNote = useCallback((note: NoteItem, inv: Intervention) => {
+    onCfg({ ...cfg, interventions: [...interventions, inv] });
+    if (note.winKey) resolvedRef.current.add(note.winKey);
+    markNote(note.id, "spent");
+  }, [cfg, interventions, onCfg, markNote]);
+  const passNote = useCallback((note: NoteItem) => {
+    if (note.winKey) resolvedRef.current.add(note.winKey);
+    markNote(note.id, "passed");
+  }, [markNote]);
   const prevYearRef = useRef(calYear);
   const [banner, setBanner] = useState<{ key: string; text: string } | null>(null);
   const [flowOn, setFlowOn] = useState(false);
 
   /* BOTTOM DECK — the expanded sheet over the map; null = collapsed strip
-     only. Picking a country opens its dossier; an open intervention window
-     always wins the deck (the sheet yields to the Turning Point dock). */
+     only. Picking a country opens its dossier. Notifications live in
+     their own rail/tab and never take the deck over. */
   const [sheetTab, setSheetTab] = useState<SheetTab | null>(null);
   const prevSelRef = useRef<number | null>(selectedIdx);
   useEffect(() => {
-    if (selectedIdx !== null && selectedIdx !== prevSelRef.current && winKey === null) {
+    if (selectedIdx !== null && selectedIdx !== prevSelRef.current) {
       setSheetTab("dossier");
     }
     prevSelRef.current = selectedIdx;
-  }, [selectedIdx, winKey]);
-  useEffect(() => {
-    if (winKey !== null) setSheetTab(null);
-  }, [winKey]);
+  }, [selectedIdx]);
   /* Esc collapses the sheet (guide / model overlays are SimulatorApp's) */
   useEffect(() => {
     if (!active || sheetTab === null) return;
@@ -469,7 +618,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [active, sheetTab]);
-  useEffect(() => { resolvedRef.current = new Set(); setWinKey(null); }, [cfg.scenarioId, cfg.seed]);
+  useEffect(() => { resolvedRef.current = new Set(); setNotesBoth([]); setUnread(0); }, [cfg.scenarioId, cfg.seed, setNotesBoth]);
   useEffect(() => {
     if (!banner) return;
     const t = setTimeout(() => setBanner((b) => (b && b.key === banner.key ? null : b)), 4200);
@@ -479,23 +628,44 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
     const prev = prevYearRef.current;
     prevYearRef.current = calYear;
     if (calYear === prev) return;
+    // a Turning Point the playhead has left behind resolves as passed —
+    // the item records that its moment went by unacted
+    const stale = notesRef.current.filter((n) => n.kind === "turning" && n.status === "open" && calYear > n.year + 1);
+    if (stale.length) {
+      for (const n of stale) if (n.winKey) resolvedRef.current.add(n.winKey);
+      setNotesBoth(notesRef.current.map((n) => (n.kind === "turning" && n.status === "open" && calYear > n.year + 1 ? { ...n, status: "passed" as const } : n)));
+    }
     if (playing) {
       const majors = result.events.filter((e) => e.year === calYear && MAJOR_KINDS.has(e.kind));
       if (majors.length) setBanner({ key: `${calYear}:${majors[0].text}`, text: majors[0].text });
+      // major events also land in the inbox (at most two per year)
+      let arrived = false;
+      for (const e of majors.slice(0, 2)) {
+        const site = eventSiteIdx(e);
+        const anchor = claimIdx !== null && (site === claimIdx || (site !== null && result.years[yearIdx][site].c === claimIdx) || e.text.includes(COUNTRIES[claimIdx].name));
+        pushNote({ id: `e${calYear}:${e.kind}:${e.text.slice(0, 24)}`, kind: "event", year: calYear, title: e.text, siteIdx: site, anchor, status: "seen", bornAt: Date.now() });
+        arrived = true;
+      }
+      if (arrived) chime(chimeOn);
     }
-    if (poolLeft <= 0 || winKey !== null) return;
+    if (poolLeft <= 0) return;
     const decade = [2036, 2046, 2056, 2066, 2076, 2086, 2096].find((w) => prev < w && calYear >= w);
     let key: string | null = decade ? `d${decade}` : null;
+    let winYear = decade ?? calYear;
     if (!key && playing && calYear >= 2031 && result.events.some((e) => e.year === calYear && (e.kind === "shock" || e.kind === "crisis" || e.kind === "overtake"))) {
-      const past = [...resolvedRef.current].map((k) => parseInt(k.slice(1), 10)).filter(Number.isFinite);
-      if (calYear - (past.length ? Math.max(...past) : 0) >= 6) key = `s${calYear}`;
+      // the ≥6-year spacing counts still-open windows too, so a fresh
+      // shock window never supersedes one the player just received
+      const past = [...resolvedRef.current, ...notesRef.current.map((n) => n.winKey).filter((k): k is string => !!k)]
+        .map((k) => parseInt(k.slice(1), 10)).filter(Number.isFinite);
+      if (calYear - (past.length ? Math.max(...past) : 0) >= 6) { key = `s${calYear}`; winYear = calYear; }
     }
-    if (key && !resolvedRef.current.has(key)) {
-      setWinKey(key);
-      onPauseRequest?.();
+    if (key && !resolvedRef.current.has(key) && !notesRef.current.some((n) => n.winKey === key)) {
+      // a still-open older Turning Point is superseded — its moment passes
+      setNotesBoth(notesRef.current.map((n) => (n.kind === "turning" && n.status === "open" ? { ...n, status: "passed" as const } : n)));
+      pushNote({ id: `t${key}`, kind: "turning", year: winYear, title: `Turning Point — ${winYear}`, siteIdx: selectedIdx, anchor: false, status: "open", winKey: key, bornAt: Date.now() });
+      chime(chimeOn);
     }
-  }, [calYear, playing, poolLeft, result, winKey, onPauseRequest]);
-  const closeWindow = () => { if (winKey) resolvedRef.current.add(winKey); setWinKey(null); };
+  }, [calYear, playing, poolLeft, result, pushNote, setNotesBoth, chimeOn, claimIdx, selectedIdx, yearIdx]);
 
   /* ── spectacle: when a major event lands during playback, its site gets
      a pulse on the map. In CINEMA the beat also earns a hold (a clean cut
@@ -615,7 +785,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
     onCfg({ ...cfg, modifiers: modifiers.includes(id) ? modifiers.filter((m) => m !== id) : [...modifiers, id] });
   const applyTemplate = (patch: Partial<SimConfig>) => {
     resolvedRef.current = new Set();
-    setWinKey(null);
+    setNotesBoth([]);
+    setUnread(0);
     onCfg({
       scenarioId: patch.scenarioId ?? cfg.scenarioId,
       seed: cfg.seed,
@@ -631,6 +802,13 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const selIsFocus = selGeo !== null && focusIdx === selectedIdx;
   const selIsRival = selGeo !== null && rivals.some((r) => r.code === selGeo.code);
   const deckSummary = `${[deck.chokepoints && "straits", deck.climate && "climate", deck.pandemics && "plague", deck.rushes && "rushes"].filter(Boolean).length}/4 decks · chaos ×${deck.chaos.toFixed(1)}`;
+
+  /* map markers for the inbox: open Turning Points and fresh events,
+     capped at five, drawn over the country each one concerns */
+  const mapMarkers = notes
+    .filter((n) => n.siteIdx !== null && (n.status === "open" || calYear - n.year <= 1))
+    .slice(0, 5)
+    .map((n) => ({ idx: n.siteIdx!, key: n.id, anchor: n.anchor }));
 
   return (
     <div className={`absolute inset-0 ${active ? (cinema ? "" : "max-sm:flex max-sm:flex-col max-sm:pt-12") : "hidden"}`} aria-hidden={!active}>
@@ -650,7 +828,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
              warmer saturation for footage. Normal view is untouched. */
           filter: cinema ? "saturate(1.3) contrast(1.07) brightness(1.02)" : undefined,
         }}>
-        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} claimIdx={claimIdx} pulse={pulse} shot={shot} cinema={cinema} />
+        <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} claimIdx={claimIdx} pulse={pulse} shot={shot} cinema={cinema} markers={mapMarkers} animations={animationsOn} />
         {!cinema && (
           <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:max-w-[94%]"
             style={{ background: "rgba(4,15,29,0.52)" }}>
@@ -732,7 +910,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           {claimIdx !== null && (
             <div className={`pointer-events-none absolute bottom-4 left-3 transition-opacity duration-500 sm:left-4 ${chromeUp ? "opacity-100" : "opacity-0"}`}>
               <span className="rounded-full border px-2.5 py-1.5 font-display text-[10px] tracking-[0.16em] backdrop-blur-md"
-                style={{ background: "rgba(4,16,30,0.66)", borderColor: "rgba(240,192,96,0.45)", color: GOLD }}>
+                style={{ background: "rgba(4,16,30,0.66)", borderColor: "rgba(34,211,238,0.55)", color: CLAIM }}>
                 ⚑ {COUNTRIES[claimIdx].name.toUpperCase()}{claimRankNow !== null ? ` · № ${claimRankNow}` : " · HELD"}
               </span>
             </div>
@@ -747,7 +925,32 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         <button onClick={() => setSheetTab(null)} className="absolute inset-0 z-20 cursor-default max-sm:hidden" aria-label="Collapse the panel" tabIndex={-1} />
       )}
 
-      {/* ══ BOTTOM DECK — Turning Point dock, tabbed sheet, transport strip ══ */}
+      {/* ══ NOTIFICATIONS RAIL — the live inbox, desktop: Turning Points
+          and major events arrive here while playback CONTINUES (no
+          pause, no modal). On phones the same list is the NOTES sheet
+          tab. Anchor-related items are cyan, like the claim itself. ══ */}
+      {active && !cinema && railOpen && (
+        <aside className="absolute right-2 top-16 z-30 hidden w-[322px] max-w-[86vw] lg:block" aria-label="Notifications">
+          <div className="flex max-h-[74dvh] flex-col rounded-xl border backdrop-blur-md"
+            style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.92), rgba(4,15,29,0.96))", borderColor: PANEL_BORDER, boxShadow: "0 18px 44px rgba(0,0,0,0.55)" }}>
+            <div className="flex items-center gap-2 px-3 pt-2.5">
+              <span className="font-display text-[11px] tracking-[0.2em]" style={{ color: GOLD }}>🔔 NOTIFICATIONS</span>
+              {unread > 0 && <span className="rounded-full px-1.5 py-0.5 font-display text-[9px] tracking-wider" style={{ background: GOLD_DEEP, color: "#081426" }}>{unread} NEW</span>}
+              <button onClick={() => { setRailOpen(false); setUnread(0); }} className="ml-auto rounded px-1.5 py-1 text-[13px] leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Close the notifications rail">▾</button>
+            </div>
+            <div className="px-3 pb-1.5 pt-1 text-[10.5px]" style={{ color: MUTED }}>
+              ⚑ INFLUENCE — earned {INFLUENCE_POOL} · spent {spentTotal} · balance {poolLeft}
+            </div>
+            <div className="min-h-0 overflow-y-auto overscroll-contain px-2.5 pb-2.5">
+              <NotesList notes={notes} pool={poolLeft} spent={spentTotal} options={powerOptions} selectedIdx={selectedIdx}
+                onSpend={spendNote} onPass={passNote}
+                onFocus={(idx) => { onSelect(idx); setSheetTab("dossier"); }} />
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* ══ BOTTOM DECK — tabbed sheet, transport strip ══ */}
       {active && !cinema && (
         <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col max-sm:relative max-sm:inset-auto max-sm:min-h-0 max-sm:flex-1">
           {/* PORTRAIT UI ZONE — on phones the deck is in-flow below the map
@@ -764,21 +967,6 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               </div>
             </div>
           )}
-          {/* P1a — intervention window, docked full-width above the strip
-              (the run is paused while it is open) */}
-          {winKey !== null && (
-            <div className="pt-2 backdrop-blur-md max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overscroll-contain" style={{ background: "rgba(3,11,22,0.85)" }}>
-              <InterventionBar
-                year={calYear}
-                pool={poolLeft}
-                options={powerOptions}
-                selectedIdx={selectedIdx}
-                onSpend={(inv) => onCfg({ ...cfg, interventions: [...interventions, inv] })}
-                onDone={closeWindow}
-              />
-            </div>
-          )}
-
           {/* EXPANDED SHEET — sm+: slides up over the map, capped at
               ~72dvh. PORTRAIT: flexes within the UI zone only (its content
               scrolls internally); the map stays pinned and fully visible */}
@@ -789,14 +977,14 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 <div className="flex min-w-0 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Panel sections">
                 {SHEET_TABS.map((t) => (
                   <button key={t.id} role="tab" aria-selected={sheetTab === t.id}
-                    onClick={() => setSheetTab(t.id)}
+                    onClick={() => { setSheetTab(t.id); if (t.id === "notes") setUnread(0); }}
                     className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 font-display text-[11px] tracking-[0.14em] sm:px-3"
                     style={{
                       background: sheetTab === t.id ? "rgba(201,150,58,0.20)" : "transparent",
                       color: sheetTab === t.id ? GOLD : "#cbb27a",
                       boxShadow: sheetTab === t.id ? "inset 0 0 0 1px rgba(240,192,96,0.45)" : "inset 0 0 0 1px rgba(201,150,58,0.18)",
                     }}>
-                    {t.label}
+                    {t.label}{t.id === "notes" && unread > 0 ? ` (${unread})` : ""}
                   </button>
                 ))}
                 </div>
@@ -895,6 +1083,16 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 )}
 
       {/* POWERS tab — leaderboard + movers */}
+      {sheetTab === "notes" && (
+        <div className="px-4 py-3">
+          <p className="mb-2 text-[11px]" style={{ color: MUTED }}>
+            ⚑ INFLUENCE — earned {INFLUENCE_POOL} · spent {spentTotal} · balance {poolLeft}. Turning Points never pause the run: act while their year is live, or they pass and the item says so.
+          </p>
+          <NotesList notes={notes} pool={poolLeft} spent={spentTotal} options={powerOptions} selectedIdx={selectedIdx}
+            onSpend={spendNote} onPass={passNote}
+            onFocus={(idx) => { onSelect(idx); setSheetTab("dossier"); }} />
+        </div>
+      )}
       {sheetTab === "powers" && (
         <div className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-3 lg:grid-cols-2">
           <div>
@@ -909,13 +1107,13 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                     className="flex w-full items-center gap-2 rounded px-1.5 py-[3px] text-left text-xs hover:bg-white/5"
                     style={{
                       color: CREAM,
-                      background: mine ? "rgba(240,192,96,0.14)" : i === 0 ? "rgba(201,150,58,0.10)" : undefined,
-                      borderLeft: mine || i === 0 ? "2px solid #f0c060" : "2px solid transparent",
+                      background: mine ? "rgba(34,211,238,0.13)" : i === 0 ? "rgba(201,150,58,0.10)" : undefined,
+                      borderLeft: mine ? `2px solid ${CLAIM}` : i === 0 ? "2px solid #f0c060" : "2px solid transparent",
                     }}>
                     <span className="w-5 shrink-0 font-display text-sm" style={{ color: i === 0 ? GOLD : MUTED }}>{String(i + 1).padStart(2, "0")}</span>
                     <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: powerColor(l.code) }} />
                     <span className="truncate">{COUNTRIES[gi].name}</span>
-                    {mine && <span className="shrink-0 font-display text-[9px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ YOUR ANCHOR</span>}
+                    {mine && <span className="shrink-0 font-display text-[9px] tracking-[0.14em]" style={{ color: CLAIM }}>⚑ YOUR ANCHOR</span>}
                     <span className="ml-auto font-mono" style={{ color: GOLD }}>{l.power.toFixed(0)}</span>
                   </button>
                 </li>
@@ -925,11 +1123,11 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             {claimIdx !== null && !leaders.some((l) => l.code === COUNTRIES[claimIdx].code) && (
               <button onClick={() => onSelect(claimIdx)}
                 className="mt-1 flex w-full items-center gap-2 rounded border px-1.5 py-[5px] text-left text-xs"
-                style={{ borderColor: "rgba(240,192,96,0.5)", background: "rgba(201,150,58,0.10)", color: CREAM }}>
+                style={{ borderColor: "rgba(34,211,238,0.5)", background: "rgba(34,211,238,0.08)", color: CREAM }}>
                 <span className="w-5 shrink-0 font-display text-sm" style={{ color: GOLD }}>{claimRankNow !== null ? String(claimRankNow).padStart(2, "0") : "——"}</span>
                 <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: powerColor(COUNTRIES[claimIdx].code) }} />
                 <span className="truncate">{COUNTRIES[claimIdx].name}</span>
-                <span className="shrink-0 font-display text-[9px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ YOUR ANCHOR</span>
+                <span className="shrink-0 font-display text-[9px] tracking-[0.14em]" style={{ color: CLAIM }}>⚑ YOUR ANCHOR</span>
                 <span className="ml-auto font-mono" style={{ color: GOLD }}>
                   {claimRankNow !== null
                     ? (result.years[yearIdx][claimIdx].bloc).toFixed(0)
@@ -961,6 +1159,31 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             </div>
               )}
           </div>
+          <div className="lg:col-span-2">
+            <SectionHead>FAITHS OF THE WORLD — {calYear}</SectionHead>
+            <ol className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+              {result.faithLeaders[yearIdx].slice(0, 6).map((fl, i) => {
+                const fd = FAITHS.find((x) => x.id === fl.faith);
+                return (
+                  <li key={fl.faith} className="flex items-center gap-2 rounded px-1.5 py-[3px] text-xs"
+                    style={{
+                      color: CREAM,
+                      background: i === 0 ? "rgba(201,150,58,0.10)" : undefined,
+                      borderLeft: i === 0 ? "2px solid #f0c060" : "2px solid transparent",
+                    }}>
+                    <span className="w-5 shrink-0 font-display text-sm" style={{ color: i === 0 ? GOLD : MUTED }}>{String(i + 1).padStart(2, "0")}</span>
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: fd?.color ?? "#8a93a3" }} />
+                    <span className="truncate">{fl.name}</span>
+                    <span className="ml-auto font-mono" style={{ color: GOLD }}>{fl.popShare.toFixed(1)}%</span>
+                    <span className="w-14 shrink-0 text-right text-[10px]" style={{ color: MUTED }}>{fl.countries} nations</span>
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="px-1.5 pt-1 text-[10px] leading-snug" style={{ color: FAINT }}>
+              Share of world population living under each dominant faith. A parallel track — faith feeds no power, influence or annexation formula.
+            </p>
+          </div>
         </div>
       )}
       {sheetTab === "chronicle" && (
@@ -983,12 +1206,12 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 <li key={`${e.year}-${i}`} className={`flex gap-2 text-[11px] leading-snug ${major || e.anchor ? "font-semibold" : ""}`}
                   style={{
                     color: major || e.anchor ? CREAM : PARCH,
-                    borderLeft: e.anchor || e.kind === "intervention" ? "2px solid rgba(240,192,96,0.65)" : "2px solid transparent",
+                    borderLeft: e.anchor ? `2px solid ${CLAIM}` : e.kind === "intervention" ? "2px solid rgba(240,192,96,0.65)" : "2px solid transparent",
                     paddingLeft: e.anchor || e.kind === "intervention" ? 6 : 2,
                   }}>
                   <span className="w-8 shrink-0 font-display text-[13px] leading-none" style={{ color: GOLD }}>{e.year}</span>
                   {e.anchor
-                    ? <span className="shrink-0 text-[10px] leading-[1.4]" style={{ color: GOLD }} aria-hidden>⚑</span>
+                    ? <span className="shrink-0 text-[10px] leading-[1.4]" style={{ color: CLAIM }} aria-hidden>⚑</span>
                     : <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.kind ? KIND_STYLE[e.kind] : FAINT }} />}
                   <span>{e.text}</span>
                 </li>
@@ -1126,7 +1349,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             {claimIdx === selectedIdx ? (
               <>
                 <span className="flex items-center rounded border px-2.5 py-1.5 font-display text-[11px] tracking-[0.14em]"
-                  style={{ borderColor: "rgba(240,192,96,0.65)", color: GOLD, background: "rgba(201,150,58,0.12)" }}>
+                  style={{ borderColor: "rgba(34,211,238,0.65)", color: CLAIM, background: "rgba(34,211,238,0.10)" }}>
                   ⚑ YOUR ANCHOR
                 </span>
                 <button
@@ -1140,8 +1363,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             ) : (
               <button
                 onClick={() => { if (selectedIdx !== null) idler.onClaim(selectedIdx); }}
-                className="rounded px-2.5 py-1.5 text-[11px] font-bold tracking-wider"
-                style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426" }}
+                className="rounded border px-2.5 py-1.5 text-[11px] font-bold tracking-wider hover:opacity-85"
+                style={{ borderColor: "rgba(34,211,238,0.7)", color: CLAIM, background: "rgba(34,211,238,0.12)" }}
                 title="Anchor this run to this nation — its fortunes become the score, and the world keeps turning at your pace while you're away"
               >
                 ⚑ CLAIM AS YOUR ANCHOR
@@ -1275,7 +1498,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           <div className="border-t backdrop-blur-md max-sm:mt-auto"
             style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.88), rgba(3,11,22,0.96))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 -12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(240,192,96,0.14)" }}>
             <div className="flex flex-col gap-y-1.5 px-2.5 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-1.5 sm:px-3">
-              <div className="flex items-center gap-1.5 sm:contents">
+              <div className="flex flex-wrap items-center gap-1.5 sm:contents">
               <button
                 onClick={tp.onTogglePlay}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display text-lg"
@@ -1328,11 +1551,11 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               {idler.claimHere ? (
                 <button onClick={() => { onSelect(idler.claimHere!.idx); setSheetTab("dossier"); }}
                   className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
-                  style={{ borderColor: "rgba(240,192,96,0.7)", background: "rgba(201,150,58,0.16)" }}
+                  style={{ borderColor: "rgba(34,211,238,0.7)", background: "rgba(34,211,238,0.12)" }}
                   title={`Your anchor — ${COUNTRIES[idler.claimHere.idx].name}. Tap to inspect it.`}
                   aria-label={`Your anchor, ${COUNTRIES[idler.claimHere.idx].name}${claimRankNow !== null ? `, ranked ${claimRankNow}` : ", held by another power"}`}>
                   <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: powerColor(idler.claimHere.code) }} />
-                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>
+                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: CLAIM }}>
                     ⚑ {COUNTRIES[idler.claimHere.idx].name.toUpperCase()} · {claimRankNow !== null ? `№ ${claimRankNow}` : "HELD"}
                   </span>
                   {claimMove && <span className="text-[10px]" style={{ color: claimMove.color }} aria-label={claimMove.word}>{claimMove.sym}</span>}
@@ -1340,27 +1563,53 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               ) : idler.claimElsewhere ? (
                 <button onClick={idler.onJumpToClaim}
                   className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
-                  style={{ borderColor: "rgba(201,150,58,0.4)", background: "rgba(201,150,58,0.06)" }}
+                  style={{ borderColor: "rgba(34,211,238,0.45)", background: "rgba(34,211,238,0.06)" }}
                   title={`Your anchor, ${idler.claimElsewhere.name}, anchors SIM ${idler.claimElsewhere.panelNo} — tap to go to that world`}
                   aria-label={`Your anchor ${idler.claimElsewhere.name} is in sim ${idler.claimElsewhere.panelNo} — jump to it`}>
-                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: "#cbb27a" }}>
+                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: CLAIM }}>
                     ⚑ {idler.claimElsewhere.name.toUpperCase()} — SIM {idler.claimElsewhere.panelNo} →
                   </span>
                 </button>
               ) : (
                 <button onClick={idler.onOpenPicker}
                   className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
-                  style={{ borderColor: "rgba(240,192,96,0.65)", background: "rgba(201,150,58,0.10)" }}
+                  style={{ borderColor: "rgba(34,211,238,0.65)", background: "rgba(34,211,238,0.10)" }}
                   title="The Idler: anchor this run to one nation, set its pace, and the world keeps turning while you're away"
                   aria-label="Claim a nation — open the Idler">
-                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ CLAIM A NATION</span>
+                  <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: CLAIM }}>⚑ CLAIM A NATION</span>
                 </button>
               )}
               <span className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
                 style={{ borderColor: "rgba(240,192,96,0.5)", background: "rgba(201,150,58,0.10)" }}
-                title="Influence points — spend them at turning points: each decade, and after major shocks">
-                <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ {poolLeft} INFLUENCE</span>
+                title="Influence — this run's steering budget. Spend it from Turning Point notifications: each decade, and after major shocks">
+                <span className="font-display text-[11px] tracking-[0.14em]" style={{ color: GOLD }}>⚑ INFLUENCE {poolLeft}</span>
               </span>
+              <button
+                onClick={() => { setUnread(0); if (window.innerWidth >= 1024) setRailOpen((v) => !v); else setSheetTab("notes"); }}
+                className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
+                style={{ borderColor: unread > 0 ? "rgba(240,192,96,0.75)" : "rgba(201,150,58,0.4)", color: GOLD, background: unread > 0 ? "rgba(201,150,58,0.16)" : "rgba(201,150,58,0.05)" }}
+                aria-label={unread > 0 ? `Notifications, ${unread} new` : "Notifications"}
+                title="Notifications — Turning Points and major events; the run never pauses for them">
+                🔔 NOTES{unread > 0 ? ` (${unread})` : ""}
+              </button>
+              <button
+                onClick={() => { const v = !chimeOn; setChimeOn(v); try { localStorage.setItem("gs-chime", v ? "on" : "off"); } catch { /* noop */ } }}
+                className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
+                style={{ borderColor: "rgba(201,150,58,0.4)", color: chimeOn ? GOLD : FAINT, background: "rgba(201,150,58,0.05)" }}
+                aria-pressed={chimeOn}
+                aria-label={chimeOn ? "Notification chime on" : "Notification chime off"}
+                title="A short chime when a notification arrives">
+                ♪ {chimeOn ? "ON" : "OFF"}
+              </button>
+              <button
+                onClick={() => { const v = !animationsOn; setAnimationsOn(v); try { localStorage.setItem("gs-animations", v ? "on" : "off"); } catch { /* noop */ } }}
+                className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
+                style={{ borderColor: "rgba(201,150,58,0.4)", color: animationsOn ? GOLD : FAINT, background: "rgba(201,150,58,0.05)" }}
+                aria-pressed={animationsOn}
+                aria-label={animationsOn ? "War animations on" : "War animations off"}
+                title="War spectacle — missile arcs, drones and impact bursts on the map">
+                ANIMATIONS {animationsOn ? "ON" : "OFF"}
+              </button>
               {challengeChip}
               {panelSwitcher}
               <button

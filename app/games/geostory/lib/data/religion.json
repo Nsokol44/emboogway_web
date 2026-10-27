@@ -1,0 +1,702 @@
+{
+ "AFG": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "AGO": {
+  "f": "christianity",
+  "share": 0.85
+ },
+ "ALB": {
+  "f": "islam",
+  "share": 0.59
+ },
+ "ARE": {
+  "f": "islam",
+  "share": 0.7
+ },
+ "ARG": {
+  "f": "christianity",
+  "share": 0.85
+ },
+ "ARM": {
+  "f": "christianity",
+  "share": 0.97
+ },
+ "AUS": {
+  "f": "christianity",
+  "share": 0.44
+ },
+ "AUT": {
+  "f": "christianity",
+  "share": 0.7
+ },
+ "AZE": {
+  "f": "islam",
+  "share": 0.97
+ },
+ "BDI": {
+  "f": "christianity",
+  "share": 0.94
+ },
+ "BEL": {
+  "f": "christianity",
+  "share": 0.58
+ },
+ "BEN": {
+  "f": "christianity",
+  "share": 0.5
+ },
+ "BFA": {
+  "f": "islam",
+  "share": 0.64
+ },
+ "BGD": {
+  "f": "islam",
+  "share": 0.91
+ },
+ "BGR": {
+  "f": "christianity",
+  "share": 0.76
+ },
+ "BHS": {
+  "f": "christianity",
+  "share": 0.96
+ },
+ "BIH": {
+  "f": "islam",
+  "share": 0.51
+ },
+ "BLR": {
+  "f": "christianity",
+  "share": 0.84
+ },
+ "BLZ": {
+  "f": "christianity",
+  "share": 0.78
+ },
+ "BOL": {
+  "f": "christianity",
+  "share": 0.93
+ },
+ "BRA": {
+  "f": "christianity",
+  "share": 0.84
+ },
+ "BRN": {
+  "f": "islam",
+  "share": 0.78
+ },
+ "BTN": {
+  "f": "buddhism",
+  "share": 0.74
+ },
+ "BWA": {
+  "f": "christianity",
+  "share": 0.79
+ },
+ "CAF": {
+  "f": "christianity",
+  "share": 0.8
+ },
+ "CAN": {
+  "f": "christianity",
+  "share": 0.53
+ },
+ "CHE": {
+  "f": "christianity",
+  "share": 0.6
+ },
+ "CHL": {
+  "f": "christianity",
+  "share": 0.68
+ },
+ "CHN": {
+  "f": "unaffiliated",
+  "share": 0.52
+ },
+ "CIV": {
+  "f": "islam",
+  "share": 0.42
+ },
+ "CMR": {
+  "f": "christianity",
+  "share": 0.7
+ },
+ "COD": {
+  "f": "christianity",
+  "share": 0.95
+ },
+ "COG": {
+  "f": "christianity",
+  "share": 0.8
+ },
+ "COL": {
+  "f": "christianity",
+  "share": 0.92
+ },
+ "CRI": {
+  "f": "christianity",
+  "share": 0.9
+ },
+ "CUB": {
+  "f": "christianity",
+  "share": 0.59
+ },
+ "CYP": {
+  "f": "christianity",
+  "share": 0.8
+ },
+ "CZE": {
+  "f": "unaffiliated",
+  "share": 0.7
+ },
+ "DEU": {
+  "f": "christianity",
+  "share": 0.52
+ },
+ "DJI": {
+  "f": "islam",
+  "share": 0.97
+ },
+ "DNK": {
+  "f": "christianity",
+  "share": 0.75
+ },
+ "DOM": {
+  "f": "christianity",
+  "share": 0.88
+ },
+ "DZA": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "ECU": {
+  "f": "christianity",
+  "share": 0.9
+ },
+ "EGY": {
+  "f": "islam",
+  "share": 0.9
+ },
+ "ERI": {
+  "f": "christianity",
+  "share": 0.57
+ },
+ "ESH": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "ESP": {
+  "f": "christianity",
+  "share": 0.66
+ },
+ "EST": {
+  "f": "unaffiliated",
+  "share": 0.54
+ },
+ "ETH": {
+  "f": "christianity",
+  "share": 0.62
+ },
+ "FIN": {
+  "f": "christianity",
+  "share": 0.65
+ },
+ "FJI": {
+  "f": "christianity",
+  "share": 0.62
+ },
+ "FLK": {
+  "f": "christianity",
+  "share": 0.67
+ },
+ "FRA": {
+  "f": "christianity",
+  "share": 0.46
+ },
+ "GAB": {
+  "f": "christianity",
+  "share": 0.82
+ },
+ "GBR": {
+  "f": "christianity",
+  "share": 0.46
+ },
+ "GEO": {
+  "f": "christianity",
+  "share": 0.88
+ },
+ "GHA": {
+  "f": "christianity",
+  "share": 0.71
+ },
+ "GIN": {
+  "f": "islam",
+  "share": 0.89
+ },
+ "GMB": {
+  "f": "islam",
+  "share": 0.96
+ },
+ "GNB": {
+  "f": "islam",
+  "share": 0.45
+ },
+ "GNQ": {
+  "f": "christianity",
+  "share": 0.93
+ },
+ "GRC": {
+  "f": "christianity",
+  "share": 0.9
+ },
+ "GRL": {
+  "f": "christianity",
+  "share": 0.96
+ },
+ "GTM": {
+  "f": "christianity",
+  "share": 0.88
+ },
+ "GUY": {
+  "f": "christianity",
+  "share": 0.57
+ },
+ "HND": {
+  "f": "christianity",
+  "share": 0.86
+ },
+ "HRV": {
+  "f": "christianity",
+  "share": 0.91
+ },
+ "HTI": {
+  "f": "christianity",
+  "share": 0.8
+ },
+ "HUN": {
+  "f": "christianity",
+  "share": 0.62
+ },
+ "IDN": {
+  "f": "islam",
+  "share": 0.87
+ },
+ "IND": {
+  "f": "hinduism",
+  "share": 0.79
+ },
+ "IRL": {
+  "f": "christianity",
+  "share": 0.84
+ },
+ "IRN": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "IRQ": {
+  "f": "islam",
+  "share": 0.97
+ },
+ "ISL": {
+  "f": "christianity",
+  "share": 0.73
+ },
+ "ISR": {
+  "f": "judaism",
+  "share": 0.74
+ },
+ "ITA": {
+  "f": "christianity",
+  "share": 0.83
+ },
+ "JAM": {
+  "f": "christianity",
+  "share": 0.86
+ },
+ "JOR": {
+  "f": "islam",
+  "share": 0.97
+ },
+ "JPN": {
+  "f": "folk",
+  "share": 0.5
+ },
+ "KAZ": {
+  "f": "islam",
+  "share": 0.69
+ },
+ "KEN": {
+  "f": "christianity",
+  "share": 0.85
+ },
+ "KGZ": {
+  "f": "islam",
+  "share": 0.87
+ },
+ "KHM": {
+  "f": "buddhism",
+  "share": 0.97
+ },
+ "KOR": {
+  "f": "unaffiliated",
+  "share": 0.56
+ },
+ "KOS": {
+  "f": "islam",
+  "share": 0.93
+ },
+ "KWT": {
+  "f": "islam",
+  "share": 0.75
+ },
+ "LAO": {
+  "f": "buddhism",
+  "share": 0.64
+ },
+ "LBN": {
+  "f": "islam",
+  "share": 0.57
+ },
+ "LBR": {
+  "f": "christianity",
+  "share": 0.86
+ },
+ "LBY": {
+  "f": "islam",
+  "share": 0.97
+ },
+ "LKA": {
+  "f": "buddhism",
+  "share": 0.7
+ },
+ "LSO": {
+  "f": "christianity",
+  "share": 0.96
+ },
+ "LTU": {
+  "f": "christianity",
+  "share": 0.86
+ },
+ "LUX": {
+  "f": "christianity",
+  "share": 0.6
+ },
+ "LVA": {
+  "f": "christianity",
+  "share": 0.64
+ },
+ "MAR": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "MDA": {
+  "f": "christianity",
+  "share": 0.94
+ },
+ "MDG": {
+  "f": "christianity",
+  "share": 0.85
+ },
+ "MEX": {
+  "f": "christianity",
+  "share": 0.89
+ },
+ "MKD": {
+  "f": "christianity",
+  "share": 0.65
+ },
+ "MLI": {
+  "f": "islam",
+  "share": 0.95
+ },
+ "MMR": {
+  "f": "buddhism",
+  "share": 0.88
+ },
+ "MNE": {
+  "f": "christianity",
+  "share": 0.74
+ },
+ "MNG": {
+  "f": "buddhism",
+  "share": 0.53
+ },
+ "MOZ": {
+  "f": "christianity",
+  "share": 0.62
+ },
+ "MRT": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "MWI": {
+  "f": "christianity",
+  "share": 0.82
+ },
+ "MYS": {
+  "f": "islam",
+  "share": 0.63
+ },
+ "NAM": {
+  "f": "christianity",
+  "share": 0.9
+ },
+ "NCL": {
+  "f": "christianity",
+  "share": 0.85
+ },
+ "NCY": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "NER": {
+  "f": "islam",
+  "share": 0.98
+ },
+ "NGA": {
+  "f": "islam",
+  "share": 0.53
+ },
+ "NIC": {
+  "f": "christianity",
+  "share": 0.85
+ },
+ "NLD": {
+  "f": "unaffiliated",
+  "share": 0.55
+ },
+ "NOR": {
+  "f": "christianity",
+  "share": 0.7
+ },
+ "NPL": {
+  "f": "hinduism",
+  "share": 0.81
+ },
+ "NZL": {
+  "f": "unaffiliated",
+  "share": 0.48
+ },
+ "OMN": {
+  "f": "islam",
+  "share": 0.86
+ },
+ "PAK": {
+  "f": "islam",
+  "share": 0.96
+ },
+ "PAN": {
+  "f": "christianity",
+  "share": 0.93
+ },
+ "PER": {
+  "f": "christianity",
+  "share": 0.94
+ },
+ "PHL": {
+  "f": "christianity",
+  "share": 0.92
+ },
+ "PNG": {
+  "f": "christianity",
+  "share": 0.96
+ },
+ "POL": {
+  "f": "christianity",
+  "share": 0.92
+ },
+ "PRI": {
+  "f": "christianity",
+  "share": 0.89
+ },
+ "PRK": {
+  "f": "unaffiliated",
+  "share": 0.71
+ },
+ "PRT": {
+  "f": "christianity",
+  "share": 0.84
+ },
+ "PRY": {
+  "f": "christianity",
+  "share": 0.95
+ },
+ "PSE": {
+  "f": "islam",
+  "share": 0.97
+ },
+ "QAT": {
+  "f": "islam",
+  "share": 0.65
+ },
+ "ROU": {
+  "f": "christianity",
+  "share": 0.92
+ },
+ "RUS": {
+  "f": "christianity",
+  "share": 0.7
+ },
+ "RWA": {
+  "f": "christianity",
+  "share": 0.93
+ },
+ "SAU": {
+  "f": "islam",
+  "share": 0.93
+ },
+ "SDN": {
+  "f": "islam",
+  "share": 0.91
+ },
+ "SEN": {
+  "f": "islam",
+  "share": 0.96
+ },
+ "SLB": {
+  "f": "christianity",
+  "share": 0.97
+ },
+ "SLE": {
+  "f": "islam",
+  "share": 0.78
+ },
+ "SLV": {
+  "f": "christianity",
+  "share": 0.81
+ },
+ "SOL": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "SOM": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "SRB": {
+  "f": "christianity",
+  "share": 0.88
+ },
+ "SSD": {
+  "f": "christianity",
+  "share": 0.6
+ },
+ "SUR": {
+  "f": "christianity",
+  "share": 0.48
+ },
+ "SVK": {
+  "f": "christianity",
+  "share": 0.76
+ },
+ "SVN": {
+  "f": "christianity",
+  "share": 0.6
+ },
+ "SWE": {
+  "f": "christianity",
+  "share": 0.57
+ },
+ "SWZ": {
+  "f": "christianity",
+  "share": 0.9
+ },
+ "SYR": {
+  "f": "islam",
+  "share": 0.87
+ },
+ "TCD": {
+  "f": "islam",
+  "share": 0.58
+ },
+ "TGO": {
+  "f": "christianity",
+  "share": 0.48
+ },
+ "THA": {
+  "f": "buddhism",
+  "share": 0.93
+ },
+ "TJK": {
+  "f": "islam",
+  "share": 0.96
+ },
+ "TKM": {
+  "f": "islam",
+  "share": 0.89
+ },
+ "TLS": {
+  "f": "christianity",
+  "share": 0.99
+ },
+ "TTO": {
+  "f": "christianity",
+  "share": 0.55
+ },
+ "TUN": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "TUR": {
+  "f": "islam",
+  "share": 0.93
+ },
+ "TWN": {
+  "f": "chinese_folk",
+  "share": 0.44
+ },
+ "TZA": {
+  "f": "christianity",
+  "share": 0.6
+ },
+ "UGA": {
+  "f": "christianity",
+  "share": 0.84
+ },
+ "UKR": {
+  "f": "christianity",
+  "share": 0.82
+ },
+ "URY": {
+  "f": "unaffiliated",
+  "share": 0.47
+ },
+ "USA": {
+  "f": "christianity",
+  "share": 0.63
+ },
+ "UZB": {
+  "f": "islam",
+  "share": 0.89
+ },
+ "VEN": {
+  "f": "christianity",
+  "share": 0.89
+ },
+ "VNM": {
+  "f": "folk",
+  "share": 0.45
+ },
+ "VUT": {
+  "f": "christianity",
+  "share": 0.93
+ },
+ "YEM": {
+  "f": "islam",
+  "share": 0.99
+ },
+ "ZAF": {
+  "f": "christianity",
+  "share": 0.85
+ },
+ "ZMB": {
+  "f": "christianity",
+  "share": 0.97
+ },
+ "ZWE": {
+  "f": "christianity",
+  "share": 0.84
+ }
+}

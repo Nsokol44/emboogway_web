@@ -7,12 +7,13 @@
  */
 import { powerColor, shade, techColor, LAYERS, type LayerId } from "../lib/scenarios";
 import { TERRAIN_SWATCHES, WATERWAY_SWATCHES } from "../lib/terrain";
+import { FAITHS } from "../lib/religion";
 
 const MUTED = "#93a7bd";
 const FAINT = "#5f748c";
 const GOLD = "#f0c060";
 
-function Swatch({ bg, outline, label, striped }: { bg?: string; outline?: boolean; label: string; striped?: boolean }) {
+function Swatch({ bg, outline, claim, label, striped }: { bg?: string; outline?: boolean; claim?: boolean; label: string; striped?: boolean }) {
   return (
     <span className="flex items-center gap-1.5">
       <span
@@ -21,7 +22,7 @@ function Swatch({ bg, outline, label, striped }: { bg?: string; outline?: boolea
           background: striped
             ? `repeating-linear-gradient(90deg, ${bg} 0 4px, #e8f2fa 4px 5px, ${bg} 5px 9px)`
             : (bg ?? "transparent"),
-          border: outline ? `1.5px solid ${GOLD}` : "1px solid rgba(147,167,189,0.35)",
+          border: claim ? "1.5px solid #22d3ee" : outline ? `1.5px solid ${GOLD}` : "1px solid rgba(147,167,189,0.35)",
         }}
       />
       <span>{label}</span>
@@ -45,7 +46,8 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
         <>
           <Swatch bg={rep} label="sovereign — wears its own colour" />
           <Swatch bg={shade(rep, 0.62)} label="held territory (darker)" />
-          <Swatch outline label="№ 1 power glows gold" />
+          <Swatch outline label="gold outline — your selection" />
+          <Swatch claim label="cyan — your claimed nation, its current borders" />
           <span style={{ color: FAINT }}>colour = controlling power — click a tile for its dossier</span>
         </>
       )}
@@ -53,7 +55,8 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
         <>
           <Swatch bg={shade(rep, 0.96)} label="inside another power's orbit" />
           <Swatch bg={shade(rep, 0.55)} label="holds its own orbit (dimmed)" />
-          <Swatch outline label="№ 1 power glows gold" />
+          <Swatch outline label="gold outline — your selection" />
+          <Swatch claim label="cyan — your claimed nation, its current borders" />
           <span style={{ color: FAINT }}>colour names the top influencer; pull = power × receptivity ÷ distance</span>
         </>
       )}
@@ -61,7 +64,8 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
         <>
           <Swatch bg={shade(rep, 0.96)} label="market ruled from abroad" />
           <Swatch bg={shade(rep, 0.55)} label="dominates its own market (dimmed)" />
-          <Swatch outline label="№ 1 power glows gold" />
+          <Swatch outline label="gold outline — your selection" />
+          <Swatch claim label="cyan — your claimed nation, its current borders" />
           <span style={{ color: FAINT }}>colour names the dominant market — gravity decays with distance</span>
         </>
       )}
@@ -74,6 +78,14 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
             <Swatch key={s.name} bg={s.color} label={s.name} striped={s.canal} />
           ))}
           <span style={{ color: FAINT }}>the land itself — switch layers to lay power back over it</span>
+        </>
+      )}
+      {layer === "religion" && (
+        <>
+          {FAITHS.map((f) => (
+            <Swatch key={f.id} bg={f.color} label={f.name} />
+          ))}
+          <span style={{ color: FAINT }}>each country wears its dominant faith; held territory darker — faith is a parallel track and feeds no power formula</span>
         </>
       )}
       {layer === "tech" && (

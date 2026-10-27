@@ -46,7 +46,7 @@ function validCfg(c: unknown): c is SimConfig {
 
 const GUIDE_STEPS: { icon: string; title: string; text: string }[] = [
   { icon: "▶", title: "Watch the century", text: "Press play — 175 countries, 75 years, one deterministic history. Same seed, same century, every time." },
-  { icon: "⚑", title: "Spend influence at turning points", text: "Each decade, and after big shocks, the run pauses. Bend one thing: a research drive, a trade realignment, a hardened strait." },
+  { icon: "⚑", title: "Spend influence at turning points", text: "Each decade, and after big shocks, a Turning Point lands in your notifications — the run never pauses. Act while its year is live: a research drive, a trade realignment, a hardened strait. Or let it pass." },
   { icon: "🔗", title: "Share your run", text: "The export kit carries a challenge link — anyone who opens it replays your exact century, interventions included." },
 ];
 
@@ -470,7 +470,8 @@ export default function SimulatorApp() {
     return () => { document.body.classList.remove("gs-cinema"); };
   }, [cinema]);
 
-  /* ---- keyboard: space play/pause, arrows step a year, 1–5 layers,
+  /* ---- keyboard: space play/pause, arrows step a year, 1–N layers (N =
+         LAYERS.length — Religion is № 6),
          C cinema, Esc closes overlays (the sheet has its own) ----------- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -493,7 +494,7 @@ export default function SimulatorApp() {
       } else if (e.key === "ArrowLeft") {
         setPace("paused");
         setYearFloat((y) => Math.max(0, y - 1));
-      } else if (["1", "2", "3", "4", "5"].includes(e.key)) {
+      } else if (/^[1-9]$/.test(e.key) && Number(e.key) <= LAYERS.length) {
         setLayer(LAYERS[Number(e.key) - 1].id);
       } else if ((e.key === "c" || e.key === "C") && !e.metaKey && !e.ctrlKey && !e.altKey) {
         setCinema((v) => !v);
@@ -786,7 +787,7 @@ export default function SimulatorApp() {
               START PLAYING
             </button>
             <p className="mt-3 text-center text-[11px]" style={{ color: MUTED }}>
-              Keys: <span style={{ color: PARCH }}>space</span> play/pause · <span style={{ color: PARCH }}>← →</span> step a year · <span style={{ color: PARCH }}>1–5</span> layers · <span style={{ color: PARCH }}>C</span> cinema
+              Keys: <span style={{ color: PARCH }}>space</span> play/pause · <span style={{ color: PARCH }}>← →</span> step a year · <span style={{ color: PARCH }}>1–6</span> layers · <span style={{ color: PARCH }}>C</span> cinema
             </p>
           </div>
         </div>

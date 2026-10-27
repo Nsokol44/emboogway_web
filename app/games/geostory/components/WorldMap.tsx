@@ -2,9 +2,16 @@
 
 /**
  * Hex-tile world map (Civilization-style), dressed as a chart-room atlas:
- * deep-navy ocean with a real graticule, faint contour linework, a compass
- * rose, and gold reserved for emphasis — the leading power's glow and the
- * player's selection.
+ * deep-navy ocean with a real graticule and faint contour linework.
+ *
+ * Highlight language (playtest-settled, do not muddy it):
+ * - CYAN (#22d3ee) means exactly one thing — the player's claim: a
+ *   persistent outline tracing the claim's CURRENT borders (homeland +
+ *   everything it currently holds), a pennant on the homeland, and a
+ *   slight cyan lift in its territory fill.
+ * - GOLD is transient only: the player's selection and hover.
+ * - The leading power gets NO map outline at all (it is crowned in the
+ *   standings, not on the atlas) — a gold #1 outline read as "owned".
  *
  * Land tiles were precomputed from the real country geometries
  * (scripts/build-geodata.mjs). Every layer colours tiles by country-level
@@ -17,10 +24,11 @@
  * viewBox to the protagonist's neighbourhood (and back) over ~0.45s.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { COUNTRIES, WORLD, fmtGdp } from "../lib/data";
+import { COUNTRIES, WORLD, fmtGdp, START_YEAR } from "../lib/data";
 import type { SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
 import { powerColor, shade, techColor, type LayerId } from "../lib/scenarios";
+import { FAITHS } from "../lib/religion";
 import { COUNTRY_WATERWAYS, DOMINANT_TERRAIN, TERRAIN_LABEL, TERRAIN_PALETTE, WATERWAY_HEXES, getTerrainPlateURL } from "../lib/terrain";
 import WeatherOverlay from "./WeatherOverlay";
 
@@ -62,16 +70,38 @@ function computeFlips(result: SimResult): Flip[] {
 }
 
 /* ------------------------------------------------------------------- fills */
-export function countryFill(result: SimResult, yearIdx: number, idx: number, layer: LayerId, leaderIdx: number): string {
+/** the claim's colour — cyan means "mine", everywhere in the app */
+export const CLAIM_HEX = "#22d3ee";
+
+function mixHex(a: string, b: string, t: number): string {
+  const pa = /^#([0-9a-f]{6})$/i.exec(a);
+  const pb = /^#([0-9a-f]{6})$/i.exec(b);
+  if (!pa || !pb) return a;
+  const ca = parseInt(pa[1], 16), cb = parseInt(pb[1], 16);
+  const r = Math.round(((ca >> 16) & 255) * (1 - t) + ((cb >> 16) & 255) * t);
+  const g = Math.round(((ca >> 8) & 255) * (1 - t) + ((cb >> 8) & 255) * t);
+  const bl = Math.round((ca & 255) * (1 - t) + (cb & 255) * t);
+  return `rgb(${r} ${g} ${bl})`;
+}
+
+export function countryFill(result: SimResult, yearIdx: number, idx: number, layer: LayerId, claimIdx: number = -1): string {
   const snap = result.years[yearIdx][idx];
+  if (layer === "religion") {
+    // dominant faith enamel; held territory reads darker, as with territory
+    const base = FAITHS[snap.f]?.color ?? "#8a93a3";
+    return snap.c === idx ? base : shade(base, 0.68);
+  }
   if (layer === "tech") {
     return snap.c === idx ? techColor(snap.tech) : shade(techColor(snap.tech), 0.72);
   }
   const src = layer === "territory" ? snap.c : layer === "influence" ? snap.i : snap.e;
   const base = powerColor(COUNTRIES[src].code);
   if (layer === "territory") {
-    if (src !== idx) return shade(base, 0.62); // held territory reads darker
-    return src === leaderIdx ? shade(base, 1.14) : base; // the leader glows a touch brighter
+    // the claim's land gets a slight cyan lift so it is findable at
+    // full-world zoom; held territory otherwise reads darker
+    if (claimIdx >= 0 && snap.c === claimIdx) return mixHex(base, CLAIM_HEX, src === idx ? 0.14 : 0.20);
+    if (src !== idx) return shade(base, 0.62);
+    return base;
   }
   // influence / economic: self-orbit countries are dimmed so foreign orbits pop
   return src === idx ? shade(base, 0.55) : shade(base, 0.96);
@@ -108,27 +138,35 @@ function shotBox(idx: number): Box {
   };
 }
 
-/** small engraved compass rose, drawn in map coordinates */
-function CompassRose({ cx, cy, r }: { cx: number; cy: number; r: number }) {
-  const spikes = Array.from({ length: 8 }, (_, k) => {
-    const a = (Math.PI / 4) * k - Math.PI / 2;
-    const long = k % 2 === 0;
-    const len = long ? r : r * 0.58;
-    const wdt = long ? r * 0.16 : r * 0.11;
-    const px = cx + Math.cos(a) * len, py = cy + Math.sin(a) * len;
-    const bx = cx + Math.cos(a + Math.PI / 2) * wdt, by = cy + Math.sin(a + Math.PI / 2) * wdt;
-    const bx2 = cx + Math.cos(a - Math.PI / 2) * wdt, by2 = cy + Math.sin(a - Math.PI / 2) * wdt;
-    return <polygon key={k} points={`${bx},${by} ${px},${py} ${bx2},${by2}`} fill={long ? "rgba(240,192,96,0.85)" : "rgba(240,192,96,0.4)"} />;
-  });
-  return (
-    <g pointerEvents="none" opacity="0.9">
-      <circle cx={cx} cy={cy} r={r * 1.18} fill="rgba(4,16,30,0.55)" stroke="rgba(240,192,96,0.5)" strokeWidth={r * 0.045} />
-      <circle cx={cx} cy={cy} r={r * 0.92} fill="none" stroke="rgba(240,192,96,0.3)" strokeWidth={r * 0.03} />
-      {spikes}
-      <circle cx={cx} cy={cy} r={r * 0.13} fill="#f0c060" />
-      <text x={cx} y={cy - r * 1.38} textAnchor="middle" fontSize={r * 0.52} fill="#f0c060" fontFamily="'Bebas Neue', sans-serif" letterSpacing="0.08em">N</text>
-    </g>
-  );
+/* ------------------------------------------------------- war spectacle */
+/** a parsed war: an annexation event whose text names both actors
+ *  ("X takes control of Y …"). Presentation only — the pair comes from
+ *  the chronicle's own words; an event without a parseable pair gets a
+ *  site pulse from the major-event machinery, never an invented arc. */
+export interface WarBeat { year: number; atk: number; tgt: number; key: string }
+const NAME_IDX = COUNTRIES.map((c, i) => ({ name: c.name, i })).sort((a, b) => b.name.length - a.name.length);
+export function parseWars(result: SimResult): WarBeat[] {
+  const out: WarBeat[] = [];
+  for (const e of result.events) {
+    if (e.kind !== "annex") continue;
+    const atk = NAME_IDX.find((x) => e.text.startsWith(`${x.name} takes control of `));
+    if (!atk) continue;
+    const rest = e.text.slice(atk.name.length + " takes control of ".length);
+    const tgt = NAME_IDX.find((x) => rest.startsWith(x.name));
+    if (!tgt || tgt.i === atk.i) continue;
+    out.push({ year: e.year, atk: atk.i, tgt: tgt.i, key: `${e.year}:${atk.i}:${tgt.i}` });
+  }
+  return out;
+}
+
+function arcPath(a: { cx: number; cy: number }, b: { cx: number; cy: number }): string {
+  const d = Math.max(1, Math.hypot(b.cx - a.cx, b.cy - a.cy));
+  const mx = (a.cx + b.cx) / 2, my = (a.cy + b.cy) / 2;
+  return `M${a.cx} ${a.cy} Q${mx.toFixed(1)} ${(my - (d * 0.24 + 8)).toFixed(1)} ${b.cx} ${b.cy}`;
+}
+
+function orbitPath(c: { cx: number; cy: number }, r: number): string {
+  return `M${c.cx - r} ${c.cy} A${r} ${(r * 0.42).toFixed(1)} 0 1 1 ${c.cx + r} ${c.cy} A${r} ${(r * 0.42).toFixed(1)} 0 1 1 ${c.cx - r} ${c.cy}`;
 }
 
 interface Props {
@@ -150,21 +188,50 @@ interface Props {
   /** P1b — when set, draw influence-flow arcs into this power from the
       countries it pulls hardest (thickness ∝ the engine's gravity value) */
   flowIdx?: number | null;
-  /** the Idler's anchor — a persistent gold-dashed outline + pennant */
+  /** the Idler's anchor — a persistent CYAN outline of its current
+      borders + pennant (gold is selection/hover only) */
   claimIdx?: number | null;
   /** spectacle pulse at a major event's site (key re-triggers the ring) */
   pulse?: { idx: number; key: number } | null;
+  /** notification markers — small boxes over the countries the live
+      inbox concerns (anchor items in cyan, the rest in gold) */
+  markers?: { idx: number; key: string; anchor: boolean }[] | null;
+  /** war spectacle (missile arcs, drones, flashes) — the ANIMATIONS
+      toggle; reduced-motion visitors get impact pulses only */
+  animations?: boolean;
   /** the cinema director camera's current shot (overrides framing) */
   shot?: { idx: number; key: number } | null;
   /** cinema presentation: richer washes, slower camera glides */
   cinema?: boolean;
 }
 
-export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null, terrainArt = true, weather = true, flowIdx = null, claimIdx = null, pulse = null, shot = null, cinema = false }: Props) {
+export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSelect, uid, framing = "world", frameIdx = null, diffResult = null, terrainArt = true, weather = true, flowIdx = null, claimIdx = null, pulse = null, shot = null, cinema = false, markers = null, animations = true }: Props) {
   const yearIdx = Math.max(0, Math.min(result.years.length - 1, Math.floor(yearFloat)));
   const flips = useMemo(() => computeFlips(result), [result]);
-  const leaderCode = result.leaders[yearIdx]?.[0]?.code;
-  const leaderIdx = leaderCode ? COUNTRIES.findIndex((c) => c.code === leaderCode) : -1;
+
+  /* the claim's CURRENT territory — the cyan outline follows the
+     frontier as it moves, not just the homeland's borders */
+  const claimTerritory = useMemo(() => {
+    if (claimIdx === null || claimIdx < 0) return [] as number[];
+    const out: number[] = [];
+    for (let i = 0; i < COUNTRIES.length; i++) if (result.years[yearIdx][i].c === claimIdx) out.push(i);
+    return out;
+  }, [result, yearIdx, claimIdx]);
+
+  /* war spectacle state: parsed wars + the reduced-motion preference */
+  const wars = useMemo(() => parseWars(result), [result]);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(mq.matches);
+    const on = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const calFloat = START_YEAR + yearFloat;
+  const activeWars = animations
+    ? wars.filter((w) => calFloat >= w.year && calFloat < w.year + 1.6).sort((a, b) => b.year - a.year)
+    : [];
 
   /* P1b influence flow: the selected power's strongest inbound pulls */
   const flowArcs = useMemo(() => {
@@ -240,9 +307,6 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
     return () => cancelAnimationFrame(raf);
   }, [framing, frameIdx, shot, cinema]);
 
-  const compassR = box.w * 0.030;
-  const compassX = box.x + box.w - compassR * 2.1;
-  const compassY = box.y + compassR * 2.3;
 
   /* pixel-art terrain plate: drawn once (module cache), laid under the
      political fills, which turn into translucent washes over it */
@@ -311,7 +375,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         <path
           key={c.code}
           d={COMPOUND_PATH[idx]}
-          fill={countryFill(result, yearIdx, idx, layer, leaderIdx)}
+          fill={countryFill(result, yearIdx, idx, layer, claimIdx ?? -1)}
           fillOpacity={washOpacity}
           stroke="rgba(3,10,20,0.55)"
           strokeWidth="0.4"
@@ -324,7 +388,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
       ))}
 
       {/* annexation waves: flipping tiles sweep from the annexer's side */}
-      {layer !== "terrain" && activeFlips.map((f) => {
+      {layer !== "terrain" && layer !== "religion" && activeFlips.map((f) => {
         const hexes = HEXES_BY_COUNTRY[f.country];
         const ax = COUNTRIES[f.to].cx, ay = COUNTRIES[f.to].cy;
         let maxD = 1;
@@ -337,7 +401,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         /* ease-out: the wave breaks quickly at the border, then settles
            across the interior — conquest ripples, it doesn't pop */
         const progress = 1 - Math.pow(1 - rawProgress, 2);
-        const newFill = countryFill(result, yearIdx, f.country, layer, leaderIdx);
+        const newFill = countryFill(result, yearIdx, f.country, layer, claimIdx ?? -1);
         const oldSnap = result.years[Math.max(0, f.year - 1)][f.country];
         const oldSrc = layer === "territory" ? oldSnap.c : layer === "influence" ? oldSnap.i : layer === "economic" ? oldSnap.e : f.country;
         const oldFill = layer === "tech" ? techColor(oldSnap.tech) : shade(powerColor(COUNTRIES[oldSrc].code), oldSrc === f.country ? 1 : 0.62);
@@ -412,14 +476,6 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         </g>
       ))}
 
-      {/* leading power glow outline — gold, the atlas's one loud colour */}
-      {leaderIdx >= 0 && (
-        <>
-          <path d={COUNTRIES[leaderIdx].path} fill="none" stroke="#f0c060" strokeWidth="4.5" opacity="0.22" pointerEvents="none" />
-          <path d={COUNTRIES[leaderIdx].path} fill="none" stroke="#f0c060" strokeWidth="1.3" opacity="0.85" pointerEvents="none" />
-        </>
-      )}
-
       {/* selection outline — bright gold over a soft halo */}
       {selectedIdx !== null && (
         <>
@@ -428,15 +484,102 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         </>
       )}
 
-      {/* the Idler's anchor — a dashed gold frontier and a small pennant,
-          so a claimed nation can be followed at a glance (and on footage) */}
+      {/* the Idler's anchor — CYAN, the claim's alone: a persistent
+          outline tracing its CURRENT borders (every country it holds,
+          redrawn as the frontier moves), a soft halo, and the pennant
+          on the homeland. Drawn over everything, in every layer, in
+          normal view and cinema alike — "cyan = mine" is learned once */}
       {claimIdx !== null && claimIdx >= 0 && (
         <g pointerEvents="none">
-          <path d={COUNTRIES[claimIdx].path} fill="none" stroke="#f0c060" strokeWidth="1.7" strokeDasharray="7 4" opacity="0.95" />
-          <line x1={COUNTRIES[claimIdx].cx} y1={COUNTRIES[claimIdx].cy} x2={COUNTRIES[claimIdx].cx} y2={COUNTRIES[claimIdx].cy - 13} stroke="#f0c060" strokeWidth="1.3" />
-          <polygon points={`${COUNTRIES[claimIdx].cx},${COUNTRIES[claimIdx].cy - 13} ${COUNTRIES[claimIdx].cx + 8},${COUNTRIES[claimIdx].cy - 10.4} ${COUNTRIES[claimIdx].cx},${COUNTRIES[claimIdx].cy - 7.8}`} fill="#f0c060" />
+          <path d={COUNTRIES[claimIdx].path} fill="none" stroke={CLAIM_HEX} strokeWidth="4.4" opacity="0.20" />
+          {claimTerritory.map((idx) => (
+            <path key={`claim-${COUNTRIES[idx].code}`} d={COUNTRIES[idx].path} fill="none" stroke={CLAIM_HEX} strokeWidth={idx === claimIdx ? 1.9 : 1.4} opacity="0.95" />
+          ))}
+          <line x1={COUNTRIES[claimIdx].cx} y1={COUNTRIES[claimIdx].cy} x2={COUNTRIES[claimIdx].cx} y2={COUNTRIES[claimIdx].cy - 13} stroke={CLAIM_HEX} strokeWidth="1.3" />
+          <polygon points={`${COUNTRIES[claimIdx].cx},${COUNTRIES[claimIdx].cy - 13} ${COUNTRIES[claimIdx].cx + 8},${COUNTRIES[claimIdx].cy - 10.4} ${COUNTRIES[claimIdx].cx},${COUNTRIES[claimIdx].cy - 7.8}`} fill={CLAIM_HEX} />
         </g>
       )}
+
+      {/* ── war spectacle (presentation only; the ANIMATIONS toggle and
+          the spectacle budget live here): missile arcs from the
+          attacker's land to the target's, an impact burst on arrival,
+          a drone working the contested country while its war year is
+          live, and its border flashing hot. Budget: at most 2 wars get
+          arcs (6 arcs + 6 heads), 2 impact bursts, 2 drones, 3 border
+          flashes — ~21 live elements, under the 24 cap; older beats
+          drop first. Reduced motion: impact bursts only. ── */}
+      {activeWars.length > 0 && (
+        <g pointerEvents="none">
+          {activeWars.slice(0, 3).map((w) => (
+            <path key={`flash-${w.key}`} d={COUNTRIES[w.tgt].path} fill="none" stroke="#ff5a3c" strokeWidth="2" opacity={reducedMotion ? 0.45 : undefined}>
+              {!reducedMotion && <animate attributeName="opacity" values="0.9;0.25;0.9" dur="1.1s" repeatCount="indefinite" />}
+            </path>
+          ))}
+          {!reducedMotion && activeWars.slice(0, 2).map((w) => {
+            const a = COUNTRIES[w.atk], b = COUNTRIES[w.tgt];
+            const d = arcPath(a, b);
+            return [0, 1, 2].map((k) => {
+              const begin = (k * 0.28).toFixed(2);
+              return (
+                <g key={`arc-${w.key}-${k}`}>
+                  <path d={d} fill="none" stroke="#ffb03a" strokeWidth="1.5" strokeDasharray="7 6" opacity="0">
+                    <animate attributeName="opacity" values="0;0.85;0.85;0" keyTimes="0;0.15;0.8;1" dur="1.15s" begin={`${begin}s`} repeatCount="1" />
+                    <animate attributeName="stroke-dashoffset" from="52" to="0" dur="1.15s" begin={`${begin}s`} repeatCount="1" />
+                  </path>
+                  <circle r="2.7" fill="#ffd977" opacity="0">
+                    <animateMotion dur="0.95s" begin={`${begin}s`} repeatCount="1" path={d} />
+                    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.9;1" dur="0.95s" begin={`${begin}s`} repeatCount="1" />
+                  </circle>
+                </g>
+              );
+            });
+          })}
+          {activeWars.slice(0, 2).map((w) => {
+            const b = COUNTRIES[w.tgt];
+            const begin = reducedMotion ? "0" : "0.85";
+            return (
+              <g key={`impact-${w.key}`}>
+                <circle cx={b.cx} cy={b.cy} r="4" fill="none" stroke="#ff7a4d" strokeWidth="2.4">
+                  <animate attributeName="r" from="4" to="46" dur="1.2s" begin={`${begin}s`} repeatCount="1" />
+                  <animate attributeName="opacity" from="0.95" to="0" dur="1.2s" begin={`${begin}s`} repeatCount="1" />
+                </circle>
+                <circle cx={b.cx} cy={b.cy} r="3" fill="none" stroke="#ffd977" strokeWidth="1.8">
+                  <animate attributeName="r" from="3" to="30" dur="1.05s" begin={`${begin}s`} repeatCount="1" />
+                  <animate attributeName="opacity" from="0.9" to="0" dur="1.05s" begin={`${begin}s`} repeatCount="1" />
+                </circle>
+              </g>
+            );
+          })}
+          {!reducedMotion && activeWars.slice(0, 2).map((w) => {
+            const b = COUNTRIES[w.tgt];
+            const d = orbitPath(b, 15);
+            return (
+              <g key={`drone-${w.key}`} opacity="0.9">
+                <animateMotion dur="7s" repeatCount="indefinite" path={d} rotate="auto" />
+                <g stroke="#e8f6ff" strokeWidth="1.1" fill="none">
+                  <line x1="-4.5" y1="-4.5" x2="4.5" y2="4.5" />
+                  <line x1="-4.5" y1="4.5" x2="4.5" y2="-4.5" />
+                  <circle cx="-4.5" cy="-4.5" r="1.7" />
+                  <circle cx="4.5" cy="-4.5" r="1.7" />
+                  <circle cx="-4.5" cy="4.5" r="1.7" />
+                  <circle cx="4.5" cy="4.5" r="1.7" />
+                  <circle cx="0" cy="0" r="1.6" fill="#e8f6ff" stroke="none" />
+                </g>
+              </g>
+            );
+          })}
+        </g>
+      )}
+
+      {/* notification markers — a small box over each country the live
+          inbox concerns; cyan when it concerns the anchor */}
+      {markers && markers.map((m) => (
+        <g key={m.key} pointerEvents="none" transform={`translate(${COUNTRIES[m.idx].cx} ${COUNTRIES[m.idx].cy - 16})`}>
+          <rect x="-7.5" y="-5.5" width="15" height="11" rx="2.5" fill="rgba(4,16,30,0.9)" stroke={m.anchor ? CLAIM_HEX : "#f0c060"} strokeWidth="1.2" />
+          <polygon points="0,-2.8 2.4,2 0,1 -2.4,2" fill={m.anchor ? CLAIM_HEX : "#f0c060"} />
+          <polygon points="-3,5.5 3,5.5 0,9.5" fill="rgba(4,16,30,0.9)" />
+        </g>
+      ))}
 
       {/* spectacle: a major event's site rings outward — an eye-catcher
           that reads on footage without a word of text */}
@@ -455,8 +598,6 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
           </circle>
         </g>
       )}
-
-      <CompassRose cx={compassX} cy={compassY} r={compassR} />
 
       {/* generous tap targets for small countries */}
       {COUNTRIES.map((c, idx) => (
@@ -481,7 +622,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         style={{ background: "rgba(4,16,30,0.94)", borderColor: "rgba(240,192,96,0.5)", boxShadow: "0 8px 22px rgba(0,0,0,0.55)" }}
         aria-hidden>
         <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: layer === "terrain" ? TERRAIN_PALETTE[DOMINANT_TERRAIN[hoverIdx]][1] : powerColor(COUNTRIES[hoverIdx].code) }} />
+          <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: layer === "terrain" ? TERRAIN_PALETTE[DOMINANT_TERRAIN[hoverIdx]][1] : layer === "religion" ? (FAITHS[hoverSnap.f]?.color ?? "#8a93a3") : powerColor(COUNTRIES[hoverIdx].code) }} />
           <span className="text-xs font-semibold" style={{ color: "#f7f0e3" }}>{COUNTRIES[hoverIdx].name}</span>
         </div>
         <div className="mt-0.5 text-[11px] leading-snug" style={{ color: "#cdbfa5" }}>
@@ -501,6 +642,11 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
               : <>Market ruled by <strong style={{ color: powerColor(COUNTRIES[hoverSnap.e].code) }}>{COUNTRIES[hoverSnap.e].name}</strong></>
           )}
           {layer === "tech" && <>Technology <strong style={{ color: "#f0c060" }}>{hoverSnap.tech.toFixed(0)}</strong> / 100</>}
+          {layer === "religion" && (
+            <>Dominant faith <strong style={{ color: FAITHS[hoverSnap.f]?.color ?? "#f0c060" }}>{FAITHS[hoverSnap.f]?.name}</strong>
+              {(() => { const st = result.faithLeaders[yearIdx].find((x) => x.faith === FAITHS[hoverSnap.f]?.id); return st ? <> · {st.popShare.toFixed(1)}% of humanity</> : null; })()}
+            </>
+          )}
           {layer === "terrain" && <>Terrain: <strong style={{ color: "#f0c060" }}>{TERRAIN_LABEL[DOMINANT_TERRAIN[hoverIdx]]}</strong> heartland{(COUNTRY_WATERWAYS.get(hoverIdx) ?? []).length > 0 && <> · <strong style={{ color: "#9fd0ee" }}>{(COUNTRY_WATERWAYS.get(hoverIdx) ?? []).join(" · ")}</strong></>}</>}
           <span style={{ color: "#93a7bd" }}> · GDP {fmtGdp(hoverSnap.gdp)}</span>
         </div>

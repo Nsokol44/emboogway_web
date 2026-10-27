@@ -174,7 +174,11 @@ fc.features.forEach((f, i) => {
 });
 
 /* strait / short-sea adjacencies so island powers can expand */
-const STRAITS = [["GBR", "FRA"], ["ESP", "MAR"], ["RUS", "USA"], ["JPN", "KOR"], ["CUB", "USA"], ["IDN", "AUS"], ["DNK", "GBR"], ["ITA", "TUN"], ["GRC", "CYP"], ["MYS", "SGP"]];
+const STRAITS = [["GBR", "FRA"], ["ESP", "MAR"], ["RUS", "USA"], ["JPN", "KOR"], ["CUB", "USA"], ["IDN", "AUS"], ["DNK", "GBR"], ["ITA", "TUN"], ["GRC", "CYP"], ["MYS", "SGP"],
+  /* island nations must be able to expand too — every country needs a maritime neighbour */
+  ["MDG", "MOZ"], ["MDG", "TZA"], ["NZL", "AUS"], ["PHL", "MYS"], ["PHL", "TWN"], ["PHL", "VNM"], ["LKA", "IND"], ["TWN", "CHN"],
+  ["ISL", "GBR"], ["ISL", "GRL"], ["GRL", "CAN"], ["JAM", "CUB"], ["JAM", "HTI"], ["BHS", "CUB"], ["BHS", "USA"], ["PRI", "DOM"],
+  ["TTO", "VEN"], ["FJI", "SLB"], ["FJI", "VUT"], ["VUT", "NCL"], ["VUT", "SLB"], ["NCL", "AUS"], ["SLB", "PNG"], ["FLK", "ARG"]];
 const byCode = Object.fromEntries(countries.map((c) => [c.code, c]));
 for (const [a, b] of STRAITS) {
   if (byCode[a] && byCode[b]) {

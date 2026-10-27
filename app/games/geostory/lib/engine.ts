@@ -18,6 +18,7 @@
 import { BASELINE, COUNTRIES, CODE_IDX, DIST, START_YEAR, END_YEAR } from "./data";
 import { Rng } from "./rng";
 import { getScenario, type ScenarioMods } from "./scenarios";
+import { COUNTRY_FAITH, FAITH_SHARE, FAITH_TUNING, FAITHS, FAITH_COUNT, FAITH_IDX } from "./religion";
 
 export interface Boosts {
   growth: number; // 0..100 slider
@@ -137,9 +138,19 @@ export interface CountrySnap {
   stab: number;
   pow: number; // own power score
   bloc: number; // bloc power score (0 if not sovereign)
+  f: number; // dominant faith index (religion layer — parallel track, feeds nothing else)
 }
 
-export type EventKind = "shock" | "annex" | "breakaway" | "overtake" | "focus" | "crisis" | "intervention";
+/** One year's religion standings: share of world population living in
+ *  countries where this faith is dominant, plus the country count. */
+export interface FaithStanding {
+  faith: string; // faith id (lib/religion FAITHS)
+  name: string;
+  popShare: number; // percent of world population, 1dp
+  countries: number;
+}
+
+export type EventKind = "shock" | "annex" | "breakaway" | "overtake" | "focus" | "crisis" | "intervention" | "faith";
 export interface SimEvent {
   year: number;
   kind: EventKind;
@@ -165,6 +176,7 @@ export interface SimResult {
   events: SimEvent[];
   leaders: { code: string; power: number }[][]; // top 10 per year
   attrib: AttribSnap[][]; // [yearIdx][countryIdx], parallel to years
+  faithLeaders: FaithStanding[][]; // religion standings per year, largest first
 }
 
 const N = COUNTRIES.length;
@@ -189,6 +201,10 @@ interface CState {
   milShare: number; baseShare: number; growthAdd: number;
   growthMod: number; techMod: number;
   ctrl: number; pressure: number; pressureFrom: number; yearsCtrl: number;
+  /* sustained-pressure strain (annexation tuning — see GEOSTORY_TUNING.md):
+     a dominant adjacent bloc grinds a neighbour's effective stability down
+     over years instead of the pressure resetting annually */
+  strain: number; strainFrom: number; siegeBase: number;
   /* intervention state — all neutral by default, so legacy runs never move */
   techPush: number; techPushUntil: number;
   alignTo: number; alignMult: number; alignUntil: number;
@@ -196,6 +212,45 @@ interface CState {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/* ---- sustained-pressure strain (deliberate balance change) -------------
+ * The annexation gate needs effective stability < 0.50 SUSTAINED, but base
+ * stability mean-reverts to each country's institutional anchor (~0.72 for
+ * Mozambique) and the old pressure meter only ran once the gate was already
+ * open — so no small state could ever crack a stable neighbour, no matter
+ * the boosts (verified: 186+ diagnostic runs, zero annexations of stable
+ * targets; a max-boosted Madagascar pressing Mozambique for 75 years
+ * changed nothing). Now a challenger that could take the target BUT FOR
+ * its stability — adjacent, ratio within reach of the gate's own bar, and
+ * bloc power > 3× the target's own power — builds strain on it each year:
+ * the grind of a determined neighbour, not background geopolitics. Strain
+ * decays slowly (×0.96/yr, only in years with no presser) and mostly
+ * evaporates when the presser changes, so it takes SUSTAINED dominance by
+ * ONE presser — roughly a decade — to ground a stable state down. The
+ * gate reads effective stability = base − strain. Where strain is 0
+ * every number is the pre-change engine's. (First cut — a universal
+ * ratio floor of 1.0 — put nearly every border on Earth under "pressure"
+ * and dissolved the baseline world, 245 → 1,446 annexations across the
+ * standard panel; the qualifying conditions above are what keep this a
+ * siege mechanic rather than a solvent.) Full rationale + measured
+ * effects: GEOSTORY_TUNING.md.
+ *
+ * The dynamics matter as much as the gate: against a micro-state a great
+ * power's local ratio is 10–100×, so strain is an EQUILIBRIUM, not a
+ * ratchet — it heals ×(1 − STRAIN_HEAL) every year while the presser's
+ * grind (sub-linear in its ratio excess, hard-capped per year) is added
+ * on top, and the grind is divided across every siege the presser is
+ * running at once. Steady background dominance equilibrates at low
+ * strain and never cracks a stable state; a focused neighbour whose
+ * grip keeps strengthening equilibrates high and, after roughly a
+ * decade, brings its target to the gate. */
+const STRAIN_FLOOR_MARGIN = 0.3; // presser ratio must clear ratioNeeded − this to start the grind
+const STRAIN_RATE = 0.06; // strain per year per unit of (ratio excess)^0.7 above that floor
+const STRAIN_GAIN_CAP = 0.06; // max strain any target can gain in one year, before siege dilution
+const STRAIN_MAX = 0.45; // a state can be ground down at most this far below its anchor
+const STRAIN_HEAL = 0.08; // fraction of strain that heals every year, besieged or not
+const STRAIN_INHERIT = 0.25; // fraction of strain kept when the presser changes
+const STRAIN_INFLUENCE = 0.2; // strain at which the presser counts as the dominant influence for the gate, and annexation pressure may pre-accumulate
 
 function ownPower(gdp: number, mil: number, tech: number, stab: number): number {
   return Math.pow(Math.max(gdp, 0.001), 0.6) *
@@ -223,6 +278,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
       milShare: share, baseShare: share, growthAdd: 0,
       growthMod: 0, techMod: 0,
       ctrl: i, pressure: 0, pressureFrom: -1, yearsCtrl: 0,
+      strain: 0, strainFrom: -1, siegeBase: 0,
       techPush: 0, techPushUntil: 0,
       alignTo: -1, alignMult: 1, alignUntil: 0,
       stabMin: -1, stabMinUntil: 0,
@@ -270,6 +326,16 @@ export function runSimulation(cfg: SimConfig): SimResult {
   const years: CountrySnap[][] = [];
   const leaders: { code: string; power: number }[][] = [];
   const attrib: AttribSnap[][] = [];
+  /* religion track state — separate arrays, never written back into the
+     power state, and the religion step below draws no RNG, so every
+     pre-religion field of every run stays exactly as the engine without
+     this layer would produce it */
+  const faithDom: number[] = [...COUNTRY_FAITH];
+  const faithPress: number[][] = COUNTRIES.map(() => new Array(FAITH_COUNT).fill(0));
+  const faithLastFlip: number[] = COUNTRIES.map(() => -99);
+  const faithLeaders: FaithStanding[][] = [];
+  let prevTopFaith = -1;
+  let focusFaithLed = false;
   /** net growth shock applied per country this year (attribution only) */
   const yrShock = new Array(N).fill(0);
   /** chokepoint hardening from interventions: strait id → year it lapses */
@@ -549,6 +615,34 @@ export function runSimulation(cfg: SimConfig): SimResult {
          instability, sustained over years. Deliberately rare — influence and
          market dominance are the normal outcomes; annexation is the exception. */
       const rankOf = new Map(sovereigns.map((sIdx, r) => [sIdx, r + 1]));
+      /* strain pre-pass (start-of-year dispositions): which challenger, if
+         any, is besieging each country this year, and how many sieges each
+         presser is running at once. A bloc's grind is divided across its
+         ACTIVE sieges, so a focused neighbour presses one target far
+         harder than an empire pressing ten borders at once */
+      const presser0 = new Int32Array(N).fill(-1);
+      const ratio0 = new Float64Array(N);
+      const floor0 = new Float64Array(N);
+      const activeSieges = new Map<number, number>();
+      for (let c0 = 0; c0 < N; c0++) {
+        const ctrl0 = st[c0].ctrl;
+        let bP = -1, bR = 0;
+        const cand0 = new Set<number>();
+        for (const j of ADJ[c0]) cand0.add(st[j].ctrl);
+        for (const p of cand0) {
+          if (p === ctrl0 || p === c0) continue;
+          const ratio = blocPow[p] / (blocPow[ctrl0] * 0.55 + pow[c0] * 0.8 + 1);
+          if (ratio > bR) { bR = ratio; bP = p; }
+        }
+        const needed0 = (ctrl0 === c0 && (rankOf.get(c0) ?? 99) <= 5) ? 3.2 : BASELINE[COUNTRIES[c0].code].major ? 2.6 : 1.9;
+        const floor = needed0 - STRAIN_FLOOR_MARGIN;
+        ratio0[c0] = bR; floor0[c0] = floor;
+        const digesting0 = bP >= 0 && year - (lastAnnexYear.get(bP) ?? -99) < 3;
+        if (bP >= 0 && !digesting0 && bR > floor && blocPow[bP] > pow[c0] * 3) {
+          presser0[c0] = bP;
+          activeSieges.set(bP, (activeSieges.get(bP) ?? 0) + 1);
+        }
+      }
       for (let c = 0; c < N; c++) {
         const ctrl = st[c].ctrl;
         let bestP = -1, bestRatio = 0;
@@ -564,12 +658,53 @@ export function runSimulation(cfg: SimConfig): SimResult {
         const protectedCore = ctrl === c && (rankOf.get(c) ?? 99) <= 5;
         const ratioNeeded = protectedCore ? 3.2 : isMajor ? 2.6 : 1.9;
         const digesting = bestP >= 0 && year - (lastAnnexYear.get(bestP) ?? -99) < 3; // empires need time to digest
-        if (!digesting && bestP >= 0 && infl[c] === bestP && st[c].stab < 0.50 && bestRatio > ratioNeeded && blocPow[bestP] > pow[c] * 3) {
+        /* sustained pressure accumulates as strain (see tuning constants),
+           judged on the start-of-year pre-pass: strain HEALS a little
+           every year and the besieger's grind is added on top — an
+           equilibrium, not a ratchet. Steady background dominance stalls
+           at low strain; only a presser whose grip keeps strengthening,
+           and who is not dividing it across many sieges, grinds a stable
+           state down to the gate */
+        const presser = presser0[c];
+        st[c].strain *= 1 - STRAIN_HEAL;
+        if (presser >= 0) {
+          if (st[c].strainFrom !== presser) {
+            st[c].strain *= STRAIN_INHERIT; st[c].strainFrom = presser;
+            st[c].siegeBase = ratio0[c]; // the dominance this siege started from
+          }
+          /* strain grows only from TIGHTENING: the presser's dominance
+             beyond both the floor and the level this siege started at
+             (siegeBase). A state that has always lived beside a giant is
+             adapted to that fact — steady dominance equilibrates at low
+             strain — but a neighbour rapidly outgrowing it cracks it.
+             The grind also widens as it deepens (×(1 + strain)): fresh
+             pressure is shrugged off, entrenched pressure cracks
+             institutions progressively */
+          const excess = Math.max(0, ratio0[c] - Math.max(floor0[c], st[c].siegeBase));
+          const gain = Math.min(STRAIN_GAIN_CAP, STRAIN_RATE * Math.pow(excess, 0.7)) *
+            (1 + st[c].strain) / Math.max(1, activeSieges.get(presser) ?? 1);
+          st[c].strain = Math.min(STRAIN_MAX, st[c].strain + gain);
+        } else if (st[c].strain < 0.005) { st[c].strain = 0; st[c].strainFrom = -1; st[c].siegeBase = 0; }
+        const effStab = st[c].stab - st[c].strain;
+        /* the presser counts as the dominant influence once its grind is
+           decisive (strain >= STRAIN_INFLUENCE): global gravity rankings
+           otherwise keep distant giants as a border state's "top
+           influencer" forever, and no neighbour could ever press a claim
+           home — the exact wall this tuning removes */
+        const influenceOk = infl[c] === bestP || (st[c].strainFrom === bestP && st[c].strain >= STRAIN_INFLUENCE);
+        const canPress = !digesting && bestP >= 0 && influenceOk && bestRatio > ratioNeeded && blocPow[bestP] > pow[c] * 3;
+        /* pressure accrues once the gate's stability condition is met — or,
+           under a deep grind (strain >= STRAIN_INFLUENCE), just before it:
+           the border slips while the state is being ground down, so the
+           fall comes soon after effective stability cracks, not a further
+           decade later. The flip itself still requires effStab < 0.50. */
+        if (canPress && (effStab < 0.50 || st[c].strain >= STRAIN_INFLUENCE)) {
           if (st[c].pressureFrom !== bestP) { st[c].pressureFrom = bestP; st[c].pressure = 0; }
-          st[c].pressure += (bestRatio - ratioNeeded) * (0.55 - st[c].stab) * 0.95;
-          if (st[c].pressure > 7) {
+          st[c].pressure += (bestRatio - ratioNeeded) * (0.55 - effStab) * 0.95 * (1 + 6 * st[c].strain);
+          if (effStab < 0.50 && st[c].pressure > 7) {
             const old = ctrl;
             st[c].ctrl = bestP; st[c].pressure = 0; st[c].pressureFrom = -1; st[c].yearsCtrl = 0;
+            st[c].strain = 0; st[c].strainFrom = -1; st[c].siegeBase = 0;
             lastAnnexYear.set(bestP, year);
             st[c].stab = clamp(st[c].stab - 0.07, 0.04, 0.97); st[c].growthMod -= 1.1; yrShock[c] -= 1.1;
             events.push({ year, kind: "annex", text: `${name(bestP)} takes control of ${name(c)} — years of influence, a wide power gap and local instability finally flip the border${old !== c ? ` (from ${name(old)})` : ""}.` });
@@ -607,6 +742,86 @@ export function runSimulation(cfg: SimConfig): SimResult {
       }
       prevTop = topCodes;
       lastPow = pow; lastMil = mil; lastInfl = infl; lastEcon = econ;
+
+      /* ---- religion: a parallel dominance track (v1). Faith pressure is
+         receptivity × gravity over DISTANCE — faiths cross oceans with
+         migration and trade, so no country is structurally locked out.
+         Pure function of current state: no RNG draws, and faith never
+         feeds power, influence, economy or annexation. ---- */
+      {
+        const T = FAITH_TUNING;
+        // radiation per country: adherents × soft power (tech) × ascendancy
+        // (a country that has risen far above its starting GDP radiates
+        // its culture — and its faith — harder)
+        const rad = st.map((s, i) => {
+          const asc = clamp((s.tech - 55) / 45, 0, 1) *
+            clamp(Math.log10(Math.max(s.gdp, 0.001) / Math.max(BASELINE[COUNTRIES[i].code].gdp, 0.001)), 0, 1);
+          return Math.pow(s.pop * FAITH_SHARE[i], T.radiationExponent) * (0.55 + 0.45 * (s.tech / 100)) * (1 + 0.5 * asc);
+        });
+        const members: number[][] = FAITHS.map(() => []);
+        for (let j = 0; j < N; j++) members[faithDom[j]].push(j);
+        for (let c = 0; c < N; c++) {
+          const inc = faithDom[c];
+          const scores = new Array(FAITH_COUNT).fill(0);
+          for (let f = 0; f < FAITH_COUNT; f++) {
+            // root-sum-square aggregation: exposure follows the strongest
+            // channels with diminishing returns from extra sources — a
+            // faith with 51 homelands must not win everywhere by headcount
+            let sumSq = 0;
+            for (const j of members[f]) {
+              const d = j === c ? 0 : DIST[c * N + j];
+              const v = rad[j] / (1 + Math.pow(d / T.distScaleKm, T.distExponent));
+              sumSq += v * v;
+            }
+            const g0 = Math.sqrt(sumSq);
+            if (g0 === 0) continue;
+            let g = g0;
+            if (f !== inc && ADJ[c].some((j) => faithDom[j] === f)) g *= T.neighbourBonus;
+            if (faithDom[infl[c]] === f) g *= T.influencerBonus;
+            if (faithDom[st[c].ctrl] === f) g *= T.controllerBonus;
+            scores[f] = g * FAITHS[f].spread;
+          }
+          // the home faith defends itself: institutions and transmission.
+          // A small nation's religious identity is NOT proportionally
+          // weaker than a giant's — the defence has a per-country base
+          scores[inc] += Math.pow(st[c].pop * FAITH_SHARE[c], T.radiationExponent) * 1.2 + T.homeBase * FAITH_SHARE[c];
+          for (let f = 0; f < FAITH_COUNT; f++) faithPress[c][f] *= T.pressureDecay;
+          let best = -1, bestScore = 0;
+          for (let f = 0; f < FAITH_COUNT; f++) {
+            if (f !== inc && scores[f] > bestScore) { bestScore = scores[f]; best = f; }
+          }
+          const incScore = scores[inc];
+          if (best >= 0 && bestScore > incScore && incScore > 0) {
+            faithPress[c][best] += Math.min((bestScore / incScore - 1) * T.pressureRate, T.pressureCap);
+          }
+          /* conversion channel: if the country's top influencer is a
+             genuinely dominant power of another faith — and that faith
+             already has a real presence here — its pressure builds
+             generationally. Empire and orbit convert, as they did
+             historically, but only where the faith has already landed */
+          const p = infl[c];
+          if (p !== c && faithDom[p] !== inc && scores[faithDom[p]] >= T.conversionPresence * incScore) {
+            const r = blocPow[p] / (pow[c] + 1);
+            if (r > T.conversionThreshold) {
+              faithPress[c][faithDom[p]] += Math.min(r - T.conversionThreshold, T.conversionCapRatio) * T.conversionRate;
+            }
+          }
+          /* flip check: highest accumulated pressure wins the country */
+          let flipTo = -1, flipPress = 0;
+          for (let f = 0; f < FAITH_COUNT; f++) {
+            if (f !== inc && faithPress[c][f] > flipPress) { flipPress = faithPress[c][f]; flipTo = f; }
+          }
+          if (flipTo >= 0 && flipPress > T.flipPressure && year - faithLastFlip[c] >= T.flipCooldownYears) {
+            const old = inc;
+            faithDom[c] = flipTo;
+            faithPress[c].fill(0);
+            faithLastFlip[c] = year;
+            if (st[c].pop >= 15 || c === focusIdx || flipTo === prevTopFaith || old === prevTopFaith) {
+              events.push({ year, kind: "faith", text: `${name(c)}'s dominant faith becomes ${FAITHS[flipTo].name} — a generation of migration, trade and cultural gravity outweighs the old incumbent, ${FAITHS[old].name}.` });
+            }
+          }
+        }
+      }
     }
 
     /* ---- snapshot (year 0 = opening state) ---- */
@@ -627,8 +842,30 @@ export function runSimulation(cfg: SimConfig): SimResult {
       stab: Math.round(s.stab * 1000) / 1000,
       pow: Math.round(powNow[i] * 100) / 100,
       bloc: Math.round(blocNow[i] * 100) / 100,
+      f: faithDom[i],
     })));
     leaders.push(sovNow.slice(0, 10).map((i) => ({ code: COUNTRIES[i].code, power: Math.round(blocNow[i] * 10) / 10 })));
+    /* religion standings for the year (parallel track — read-only) */
+    {
+      const totalPop = st.reduce((a, s) => a + s.pop, 0);
+      const standings: FaithStanding[] = FAITHS.map((fd, fi) => {
+        let pop = 0, n = 0;
+        for (let i = 0; i < N; i++) if (faithDom[i] === fi) { pop += st[i].pop; n++; }
+        return { faith: fd.id, name: fd.name, popShare: Math.round((pop / Math.max(totalPop, 0.001)) * 1000) / 10, countries: n };
+      }).filter((x) => x.countries > 0).sort((a, b) => b.popShare - a.popShare);
+      faithLeaders.push(standings);
+      const topFaith = FAITH_IDX.get(standings[0].faith)!;
+      if (yi > 0 && prevTopFaith >= 0 && topFaith !== prevTopFaith) {
+        events.push({ year, kind: "faith", text: `${standings[0].name} becomes the world's largest faith — ${standings[0].popShare.toFixed(1)}% of humanity now lives under its banner.` });
+      }
+      if (focusIdx !== undefined && topFaith === faithDom[focusIdx] && !focusFaithLed) {
+        focusFaithLed = true;
+        if (yi > 0) {
+          events.push({ year, kind: "faith", text: `The faith of ${name(focusIdx)} — ${standings[0].name} — now leads the world, the heartland's gravity made global.` });
+        }
+      }
+      prevTopFaith = topFaith;
+    }
     const maxTechNow = Math.max(...st.map((s) => s.tech));
     attrib.push(st.map((s, i) => ({
       i: yi === 0 ? i : lastInfl[i],
@@ -641,5 +878,5 @@ export function runSimulation(cfg: SimConfig): SimResult {
     })));
   }
 
-  return { years, events, leaders, attrib };
+  return { years, events, leaders, attrib, faithLeaders };
 }

@@ -269,13 +269,14 @@ export function shade(color: string, f: number): string {
   return `rgb(${r} ${g} ${b})`;
 }
 
-export type LayerId = "territory" | "influence" | "economic" | "tech" | "terrain";
+export type LayerId = "territory" | "influence" | "economic" | "tech" | "terrain" | "religion";
 export const LAYERS: { id: LayerId; name: string; blurb: string }[] = [
   { id: "territory", name: "Territory", blurb: "Who actually controls each country" },
   { id: "influence", name: "Influence", blurb: "Whose orbit each country drifts in (receptivity × gravity)" },
   { id: "economic", name: "Economic dominance", blurb: "Whose market gravity dominates — the takeover before the takeover" },
   { id: "tech", name: "Technology", blurb: "Each country's own technology level" },
   { id: "terrain", name: "Terrain", blurb: "The land itself — pixel-art ground under every border" },
+  { id: "religion", name: "Religion", blurb: "Each country's dominant faith — cultural gravity over distance; a parallel track that feeds nothing else" },
 ];
 
 /** 6-step tech scale: chart-room navy → slate → teal → sage → brass → gold */
