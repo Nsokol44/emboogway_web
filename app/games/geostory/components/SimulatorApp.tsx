@@ -44,11 +44,76 @@ function validCfg(c: unknown): c is SimConfig {
   );
 }
 
+/* the first-load tutorial — four steps, one idea each, in the game's own
+   vocabulary. Shown once (LS_GUIDE), reopenable anytime from the "?" key. */
 const GUIDE_STEPS: { icon: string; title: string; text: string }[] = [
-  { icon: "▶", title: "Watch the century", text: "Press play — 175 countries, 75 years, one deterministic history. Same seed, same century, every time." },
-  { icon: "⚑", title: "Spend influence at turning points", text: "Each decade, and after big shocks, a Turning Point lands in your notifications — the run never pauses. Act while its year is live: a research drive, a trade realignment, a hardened strait. Or let it pass." },
-  { icon: "🔗", title: "Share your run", text: "The export kit carries a challenge link — anyone who opens it replays your exact century, interventions included." },
+  { icon: "🌍", title: "A living century", text: "This is a simulated world: 175 countries, 2026 to 2100. Press ▶ and history plays out — the same seed always replays the same century. The pace is yours, in the strip below: Paused, Watchful (a year every 10 seconds) or Brisk (two years a second)." },
+  { icon: "⚑", title: "Claim a nation", text: "Tap ⚑ CLAIM A NATION and pick one country. It becomes your anchor — outlined in cyan, its fortunes are your score — and you never hold its leash: it lives its own life while you watch and nudge. Your claim is saved on this device, and the world keeps turning at your pace while you're away. Come back to a “While you were away” card." },
+  { icon: "🔔", title: "Turning Points, no interruptions", text: "Each decade, and after big shocks, a Turning Point lands in the notifications rail — the run never pauses for it. While its year is live you can spend influence on a lever (a research drive, a trade realignment, a hardened strait), or simply let the moment pass. You hold 6 influence; the ledger in the rail always shows what you've earned and spent." },
+  { icon: "🎬", title: "Cinema mode", text: "Tap 🎬 CINEMA (or press C) and every panel bows out — just the world, full screen, with a director camera that drifts to where history is happening. It's the clean view: the one to watch, and the one to record. Esc brings the controls back." },
 ];
+
+/** The tutorial card — stepped, dismissible at any point (Skip, backdrop,
+ *  Esc), and it never traps: one dismiss and the visitor is playing. */
+function GuideCard({ onClose }: { onClose: () => void }) {
+  const [step, setStep] = useState(0);
+  const last = step === GUIDE_STEPS.length - 1;
+  const s = GUIDE_STEPS[step];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="How to play the GeoStory Simulator"
+      style={{ background: "rgba(3,10,20,0.72)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border px-5 py-5"
+        style={{ background: "linear-gradient(165deg, #0b2138 0%, #06182c 78%)", borderColor: "rgba(201,150,58,0.5)", boxShadow: "0 24px 70px rgba(0,0,0,0.7), inset 0 1px 0 rgba(240,192,96,0.16)" }}
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-3">
+          <div className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD_DEEP }}>HOW TO PLAY · {step + 1} OF {GUIDE_STEPS.length}</div>
+          <button onClick={onClose} className="ml-auto shrink-0 rounded-md px-2 py-1 font-display text-[11px] tracking-[0.18em] hover:opacity-75" style={{ color: MUTED }} aria-label="Skip the tutorial">
+            SKIP ✕
+          </button>
+        </div>
+        <div className="mt-4 flex gap-3">
+          <span className="font-display text-3xl leading-none" aria-hidden style={{ color: GOLD }}>{s.icon}</span>
+          <div className="min-w-0">
+            <h2 className="font-serif text-2xl font-bold leading-tight" style={{ color: CREAM }}>{s.title}</h2>
+            <p className="mt-1.5 text-[13px] leading-relaxed" style={{ color: PARCH }}>{s.text}</p>
+          </div>
+        </div>
+        <div className="mt-5 flex items-center gap-1.5" aria-hidden>
+          {GUIDE_STEPS.map((g, i) => (
+            <span key={g.title} className="h-1.5 rounded-full transition-all" style={{ width: i === step ? 22 : 8, background: i === step ? GOLD : "rgba(201,150,58,0.3)" }} />
+          ))}
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={() => setStep((v) => Math.max(0, v - 1))} disabled={step === 0}
+            className="rounded border px-4 py-2.5 font-display text-sm tracking-[0.18em] disabled:invisible"
+            style={{ borderColor: "rgba(201,150,58,0.45)", color: PARCH }}>
+            BACK
+          </button>
+          {last ? (
+            <button onClick={onClose}
+              className="flex-1 rounded px-4 py-2.5 font-display text-base tracking-[0.2em]"
+              style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.4)" }}>
+              START PLAYING
+            </button>
+          ) : (
+            <button onClick={() => setStep((v) => Math.min(GUIDE_STEPS.length - 1, v + 1))}
+              className="flex-1 rounded px-4 py-2.5 font-display text-base tracking-[0.2em]"
+              style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.4)" }}>
+              NEXT
+            </button>
+          )}
+        </div>
+        <p className="mt-3 text-center text-[11px]" style={{ color: MUTED }}>
+          {last ? (
+            <>Reopen this anytime with the <span style={{ color: PARCH }}>?</span> below. Keys: <span style={{ color: PARCH }}>space</span> play/pause · <span style={{ color: PARCH }}>← →</span> step a year · <span style={{ color: PARCH }}>1–6</span> layers · <span style={{ color: PARCH }}>C</span> cinema</>
+          ) : (
+            <>One idea at a time — skip whenever you're ready to play.</>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /** P1c — the model, on one card. Short on purpose. */
 const MODEL_SECTIONS: { head: string; body: string }[] = [
@@ -232,7 +297,11 @@ export default function SimulatorApp() {
      (here and while away); watchful/brisk flow at their own rates. */
   const [pace, setPace] = useState<PaceId>("paused");
   const [layer, setLayer] = useState<LayerId>("territory");
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(CODE_IDX.get("USA") ?? 0);
+  /* no preset anchor, no pre-picked country: a fresh visitor starts with
+     nothing selected and nothing claimed — the map is blank until THEY
+     choose. (A returning visitor's saved claim restores its selection in
+     the mount effect below; that is their choice coming back, not ours.) */
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [terrainArt, setTerrainArt] = useState(true);
   const [weatherOn, setWeatherOn] = useState(true);
@@ -470,6 +539,14 @@ export default function SimulatorApp() {
     return () => { document.body.classList.remove("gs-cinema"); };
   }, [cinema]);
 
+  /* closing the tutorial marks it seen — Esc, Skip, the backdrop and
+     START PLAYING all count as seen; it never reappears uninvited
+     (the "?" in the transport reopens it on demand) */
+  const closeGuide = useCallback(() => {
+    setGuideOpen(false);
+    try { localStorage.setItem(LS_GUIDE, "1"); } catch { /* non-fatal */ }
+  }, []);
+
   /* ---- keyboard: space play/pause, arrows step a year, 1–N layers (N =
          LAYERS.length — Religion is № 6),
          C cinema, Esc closes overlays (the sheet has its own) ----------- */
@@ -480,7 +557,7 @@ export default function SimulatorApp() {
       if (e.key === "Escape") {
         if (cinema) { setCinema(false); return; }
         setModelOpen(false);
-        setGuideOpen(false);
+        closeGuide();
         setPickerOpen(false);
         return;
       }
@@ -657,10 +734,6 @@ export default function SimulatorApp() {
       <button onClick={() => setChallenge(false)} className="text-xs leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss the challenge notice">✕</button>
     </span>
   ) : null;
-  const closeGuide = () => {
-    setGuideOpen(false);
-    try { localStorage.setItem(LS_GUIDE, "1"); } catch { /* non-fatal */ }
-  };
   const dismissCta = () => {
     setCtaGone(true);
     try { sessionStorage.setItem(SS_CTA, "1"); } catch { /* non-fatal */ }
@@ -758,40 +831,8 @@ export default function SimulatorApp() {
         />
       )}
 
-      {/* first-visit guide — shown once per browser, reopenable via "?" */}
-      {guideOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="How to play the GeoStory Simulator"
-          style={{ background: "rgba(3,10,20,0.72)" }} onClick={closeGuide}>
-          <div className="w-full max-w-md rounded-xl border px-5 py-5"
-            style={{ background: "linear-gradient(165deg, #0b2138 0%, #06182c 78%)", borderColor: "rgba(201,150,58,0.5)", boxShadow: "0 24px 70px rgba(0,0,0,0.7), inset 0 1px 0 rgba(240,192,96,0.16)" }}
-            onClick={(e) => e.stopPropagation()}>
-            <div className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD_DEEP }}>EMBOOGWAY × STRATATIR</div>
-            <h2 className="mt-1 font-serif text-2xl font-bold" style={{ color: CREAM }}>Try this</h2>
-            <ol className="mt-4 space-y-3.5">
-              {GUIDE_STEPS.map((s, i) => (
-                <li key={s.title} className="flex gap-3">
-                  <span className="font-display text-xl leading-none" style={{ color: GOLD }}>{String(i + 1).padStart(2, "0")}</span>
-                  <div>
-                    <div className="text-sm font-semibold" style={{ color: CREAM }}>
-                      <span aria-hidden className="mr-1.5" style={{ color: GOLD }}>{s.icon}</span>
-                      {s.title}
-                    </div>
-                    <p className="mt-0.5 text-xs leading-relaxed" style={{ color: PARCH }}>{s.text}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <button onClick={closeGuide}
-              className="mt-5 w-full rounded px-4 py-2.5 font-display text-base tracking-[0.2em]"
-              style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.4)" }}>
-              START PLAYING
-            </button>
-            <p className="mt-3 text-center text-[11px]" style={{ color: MUTED }}>
-              Keys: <span style={{ color: PARCH }}>space</span> play/pause · <span style={{ color: PARCH }}>← →</span> step a year · <span style={{ color: PARCH }}>1–6</span> layers · <span style={{ color: PARCH }}>C</span> cinema
-            </p>
-          </div>
-        </div>
-      )}
+      {/* the tutorial — first load only (LS_GUIDE), reopenable via "?" */}
+      {guideOpen && <GuideCard onClose={closeGuide} />}
 
       {/* P1c — how the model works, one click from the transport */}
       {modelOpen && (

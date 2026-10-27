@@ -97,10 +97,12 @@ export function countryFill(result: SimResult, yearIdx: number, idx: number, lay
   const src = layer === "territory" ? snap.c : layer === "influence" ? snap.i : snap.e;
   const base = powerColor(COUNTRIES[src].code);
   if (layer === "territory") {
-    // the claim's land gets a slight cyan lift so it is findable at
-    // full-world zoom; held territory otherwise reads darker
-    if (claimIdx >= 0 && snap.c === claimIdx) return mixHex(base, CLAIM_HEX, src === idx ? 0.14 : 0.20);
-    if (src !== idx) return shade(base, 0.62);
+    // ONE flat colour per owner — homeland and held territory alike,
+    // no shading, no per-tile variation: ownership reads at a glance,
+    // and a flipped tile takes the conqueror's exact colour. The
+    // claim's land gets a slight cyan lift (one mix for all of it) so
+    // it stays findable at full-world zoom; the outline does the rest.
+    if (claimIdx >= 0 && snap.c === claimIdx) return mixHex(base, CLAIM_HEX, 0.16);
     return base;
   }
   // influence / economic: self-orbit countries are dimmed so foreign orbits pop
@@ -318,12 +320,15 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
     return () => { on = false; };
   }, [terrainArt]);
   const showTerrain = terrainArt && terrainUrl !== null;
-  /** fill opacity for the country washes: 1 = today's flat atlas;
-      with terrain beneath, power reads as a wash and the ground shows.
-      Cinema runs the washes richer so footage reads saturated. */
+  /** fill opacity for the country washes. TERRITORY is always fully
+      opaque — one flat colour per owner, no terrain bleeding through
+      (the ground belongs to the Terrain layer; a translucent ownership
+      wash made one country read as several colours). The other data
+      layers stay washes over the plate when terrain art is on. Cinema
+      runs those richer so footage reads saturated. */
   const washOpacity = layer === "terrain" ? 0
+    : layer === "territory" ? 1
     : !showTerrain ? 1
-    : layer === "territory" ? (cinema ? 0.8 : 0.58)
     : layer === "tech" ? (cinema ? 0.78 : 0.6)
     : (cinema ? 0.8 : 0.62);
 
@@ -404,7 +409,12 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         const newFill = countryFill(result, yearIdx, f.country, layer, claimIdx ?? -1);
         const oldSnap = result.years[Math.max(0, f.year - 1)][f.country];
         const oldSrc = layer === "territory" ? oldSnap.c : layer === "influence" ? oldSnap.i : layer === "economic" ? oldSnap.e : f.country;
-        const oldFill = layer === "tech" ? techColor(oldSnap.tech) : shade(powerColor(COUNTRIES[oldSrc].code), oldSrc === f.country ? 1 : 0.62);
+        /* territory flips sweep between the two owners' FLAT colours
+           (countryFill at last year's snapshot yields the old owner's,
+           claim lift included); the other layers keep their shading */
+        const oldFill = layer === "territory"
+          ? countryFill(result, Math.max(0, f.year - 1), f.country, "territory", claimIdx ?? -1)
+          : layer === "tech" ? techColor(oldSnap.tech) : shade(powerColor(COUNTRIES[oldSrc].code), oldSrc === f.country ? 1 : 0.62);
         return (
           <g key={`${f.country}-${f.year}`} pointerEvents="none">
             {hexes.map((h, hi) => (
@@ -414,9 +424,10 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
         );
       })}
 
-      {/* country borders for definition — aged parchment hairlines */}
+      {/* country borders for definition — parchment hairlines, strong
+          enough to separate flat fills that land near each other */}
       {COUNTRIES.map((c) => (
-        <path key={`b-${c.code}`} d={c.path} fill="none" stroke="rgba(240,220,170,0.09)" strokeWidth="0.5" pointerEvents="none" />
+        <path key={`b-${c.code}`} d={c.path} fill="none" stroke="rgba(240,220,170,0.18)" strokeWidth="0.5" pointerEvents="none" />
       ))}
 
       {/* waterways — geography, not data: the widened seas, straits and

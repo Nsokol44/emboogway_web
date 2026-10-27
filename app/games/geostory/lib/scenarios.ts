@@ -241,20 +241,142 @@ export const WORLD_MODIFIERS: WorldModifier[] = [
 /* ------------------------------------------------------------ power colours
  * Aged-atlas palette: curated, slightly desaturated — enamel and old ink
  * rather than neon. Countries stay distinguishable; gold is reserved for
- * emphasis (selection, the #1 power, key numbers), never a country fill. */
+ * emphasis (selection, the #1 power, key numbers), never a country fill.
+ *
+ * Every country owns ONE colour, assigned once, deterministically. The
+ * twelve curated enamels below are fixed. The rest are dealt from an
+ * atlas candidate pool by a greedy graph-colouring pass over the real
+ * adjacency graph (sea crossings included): most-constrained country
+ * first, each taking the candidate perceptually FARTHEST from the
+ * colours its neighbours already hold, ties broken by a hash of the
+ * country code. Distant repeats are fine and expected with 175
+ * countries; neighbours never collide. The assignment is a pure
+ * function of the country data — same map, same colours, every run,
+ * every session — and it keeps clear of the claim's cyan (#22d3ee),
+ * which must read against every fill on the map. */
+import { COUNTRIES } from "./data";
+
 const CURATED: Record<string, string> = {
   USA: "#4a7fb5", CHN: "#b84a42", IND: "#cf7f3f", RUS: "#7d6fa8", JPN: "#c47d9a",
   DEU: "#b3a04b", GBR: "#6f83b8", FRA: "#4fae9d", BRA: "#5da864", CAN: "#a55ea0",
   AUS: "#4d9db8", KOR: "#93ad4e",
 };
 
-export function powerColor(code: string): string {
-  const c = CURATED[code];
-  if (c) return c;
+function fnv1a(s: string): number {
   let h = 2166136261;
-  for (let i = 0; i < code.length; i++) { h ^= code.charCodeAt(i); h = Math.imul(h, 16777619); }
-  const hue = ((h >>> 0) % 360);
-  return `hsl(${hue} 42% 50%)`;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+type RGB = [number, number, number];
+
+function hslToRgb(h: number, s: number, l: number): RGB {
+  const sn = s / 100, ln = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sn * Math.min(ln, 1 - ln);
+  const f = (n: number) => ln - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
+function rgbToHex([r, g, b]: RGB): string {
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function hexToRgb(hex: string): RGB {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** perceptual-ish colour distance (the redmean approximation) */
+function colourDistance(a: RGB, b: RGB): number {
+  const rm = (a[0] + b[0]) / 2;
+  const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+  return Math.sqrt((2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db);
+}
+
+const CLAIM_RGB: RGB = [0x22, 0xd3, 0xee]; // the claim's cyan — fills keep their distance
+
+/** the candidate pool: the full hue wheel at atlas saturations/lightnesses */
+const ATLAS_POOL: { hex: string; rgb: RGB }[] = (() => {
+  const out: { hex: string; rgb: RGB }[] = [];
+  for (let hue = 0; hue < 360; hue += 6) {
+    for (const l of [36, 44, 52]) {
+      for (const s of [42, 52]) {
+        const rgb = hslToRgb(hue, s, l);
+        out.push({ hex: rgbToHex(rgb), rgb });
+      }
+    }
+  }
+  return out;
+})();
+
+/** the dealt colours — see the note above. Pure and stable: computed
+ *  once from the country data, identical in every session.
+ *  Each country takes the candidate with the best score:
+ *    min(neighbour distance, 110) × 2 + min(distance to every colour
+ *    already dealt, 160)
+ *  Neighbour contrast is the hard requirement and is weighted first —
+ *  but it is capped, because past ~110 a neighbour gap reads as fully
+ *  distinct and the remaining freedom is better spent making the
+ *  colour unique on the whole map (a colour already dealt scores 0 on
+ *  the second term, so repeats happen only when nothing else comes
+ *  close to the neighbours). */
+const ASSIGNED: Record<string, string> = (() => {
+  const rgbOf = new Map<string, RGB>();
+  const hexOf = new Map<string, string>();
+  for (const [code, hex] of Object.entries(CURATED)) {
+    rgbOf.set(code, hexToRgb(hex));
+    hexOf.set(code, hex);
+  }
+  const neighbours = new Map<string, string[]>();
+  for (const c of COUNTRIES) neighbours.set(c.code, c.adj.filter((x) => x !== c.code));
+  const order = COUNTRIES.map((c) => c.code)
+    .filter((code) => !rgbOf.has(code))
+    .sort((a, b) =>
+      (neighbours.get(b)?.length ?? 0) - (neighbours.get(a)?.length ?? 0) ||
+      fnv1a(a) - fnv1a(b) ||
+      a.localeCompare(b));
+  for (const code of order) {
+    const ns = (neighbours.get(code) ?? [])
+      .map((n) => rgbOf.get(n))
+      .filter((x): x is RGB => x !== undefined);
+    const dealt = [...rgbOf.values()];
+    /* scan from a code-seeded offset: exact ties don't pile every
+       country onto the same first-fit colour */
+    const start = fnv1a(code) % ATLAS_POOL.length;
+    let best: { hex: string; rgb: RGB } | null = null;
+    let bestScore = -1, bestSum = -1;
+    for (let k = 0; k < ATLAS_POOL.length; k++) {
+      const cand = ATLAS_POOL[(start + k) % ATLAS_POOL.length];
+      if (colourDistance(cand.rgb, CLAIM_RGB) < 60) continue; // cyan is the claim's alone
+      let dN = Infinity, sumN = 0;
+      for (const n of ns) {
+        const d = colourDistance(cand.rgb, n);
+        if (d < dN) dN = d;
+        sumN += d;
+      }
+      const nScore = Math.min(dN, 110) * 2;
+      if (nScore + 160 <= bestScore) continue; // cannot win even with a perfect spread term
+      let dA = Infinity;
+      for (const d of dealt) {
+        const dd = colourDistance(cand.rgb, d);
+        if (dd < dA) dA = dd;
+        if (nScore + Math.min(dA, 160) <= bestScore) break; // pruned — already beaten
+      }
+      const score = nScore + Math.min(dA, 160);
+      if (score > bestScore || (score === bestScore && sumN > bestSum)) {
+        best = cand; bestScore = score; bestSum = sumN;
+      }
+    }
+    const chosen = best ?? ATLAS_POOL[start];
+    rgbOf.set(code, chosen.rgb);
+    hexOf.set(code, chosen.hex);
+  }
+  return Object.fromEntries(hexOf);
+})();
+
+export function powerColor(code: string): string {
+  return ASSIGNED[code] ?? `hsl(${fnv1a(code) % 360} 42% 50%)`;
 }
 
 /** darken/lighten a #hex or hsl() colour by factor (for held-territory shading) */

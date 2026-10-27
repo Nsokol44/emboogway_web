@@ -44,11 +44,10 @@ export default function MapLegend({ layer }: { layer: LayerId }) {
 
       {layer === "territory" && (
         <>
-          <Swatch bg={rep} label="sovereign — wears its own colour" />
-          <Swatch bg={shade(rep, 0.62)} label="held territory (darker)" />
+          <Swatch bg={rep} label="one flat colour per country" />
           <Swatch outline label="gold outline — your selection" />
           <Swatch claim label="cyan — your claimed nation, its current borders" />
-          <span style={{ color: FAINT }}>colour = controlling power — click a tile for its dossier</span>
+          <span style={{ color: FAINT }}>every tile wears its controller's colour, held land included — click a tile for its dossier</span>
         </>
       )}
       {layer === "influence" && (

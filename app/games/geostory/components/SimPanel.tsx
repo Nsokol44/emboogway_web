@@ -843,7 +843,10 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             <span className="block truncate text-[11px]" style={{ color: CREAM }}>{banner.text}</span>
           </div>
         )}
-        {!cinema && (
+        {/* framing toggle — offered only when there is something to frame:
+            a scenario's place-focus, or a country the player picked. With
+            neither (a fresh, blank start) the world plate simply shows. */}
+        {!cinema && (framing === "region" || frameIdx !== null) && (
           <button
             onClick={() => setFraming(framing === "region" ? "world" : "region")}
             className="absolute left-2 top-12 z-10 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm max-sm:top-2"
