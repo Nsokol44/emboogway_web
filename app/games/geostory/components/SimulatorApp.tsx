@@ -746,7 +746,8 @@ export default function SimulatorApp() {
       {/* ══ THE STAGE — the whole screen is the world map. Every panel
           stays mounted (its state intact); only the active one shows.
           The bottom deck — transport strip + tabbed sheet — is rendered
-          by the active panel, docked over the map's lower edge.
+          by the active panel, docked at the screen's lower edge (in flow
+          under the stage on portrait phones).
           CINEMA: the stage pins over the whole viewport and every other
           element on the page bows out — this is the recording surface. ══ */}
       <section className={`w-full overflow-hidden ${cinema ? "fixed inset-0 z-[70]" : "relative"}`} style={{ height: "100dvh", background: "radial-gradient(ellipse at 50% 42%, #0d2f52 0%, #081f38 55%, #040f1e 100%)" }} aria-label="GeoStory Simulator">
@@ -777,11 +778,11 @@ export default function SimulatorApp() {
         ))}
 
         {/* first-run hint — floats over the map, gone once the century moves.
-            PORTRAIT: the map zone is pinned under the header and the hint
-            moves to the top of the UI zone below it (48px header clearance +
-            the map's exact height, 100vw × 520/960, + an 8px gap) */}
+            PORTRAIT: the plate is centred in a flex-1 stage under the 48px
+            header clearance, so the hint rides at the top of the stage,
+            over the ocean band above the plate */}
         {atStart && (
-          <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-center px-3 max-sm:top-[calc(54.1667vw_+_56px)]">
+          <div className="pointer-events-none absolute inset-x-0 top-14 z-10 flex justify-center px-3 max-sm:top-16">
             <span className="rounded-full border px-3.5 py-1.5 font-display text-[13px] tracking-[0.16em]"
               style={{ background: "rgba(4,16,30,0.78)", borderColor: "rgba(240,192,96,0.5)", color: GOLD, backdropFilter: "blur(6px)" }}>
               PRESS ▶ TO RUN THE CENTURY — OR ⚑ CLAIM A NATION
@@ -791,11 +792,10 @@ export default function SimulatorApp() {
 
         {/* contextual waitlist CTA — earned by playing; floats top-center
             under the header overlay, dismissible, never covers mid-map.
-            PORTRAIT: same UI-zone-top anchor as the hint (it may overlay the
-            UI zone, never the map; the deck out-ranks it at z-30, so an open
-            sheet or Turning Point still wins the space) */}
+            PORTRAIT: same stage-top anchor as the hint (the deck out-ranks
+            it at z-30, so an open sheet or Turning Point still wins) */}
         {showCta && (
-          <div className="absolute inset-x-0 top-14 z-20 flex justify-center px-3 max-sm:top-[calc(54.1667vw_+_56px)]">
+          <div className="absolute inset-x-0 top-14 z-20 flex justify-center px-3 max-sm:top-16">
             <div className="relative w-full max-w-xl rounded-xl border px-4 py-3.5 backdrop-blur-md"
               style={{ background: "linear-gradient(150deg, rgba(23,52,88,0.72), rgba(6,20,38,0.88))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 18px 44px rgba(0,0,0,0.55), inset 0 1px 0 rgba(240,192,96,0.15)" }}>
               <button onClick={dismissCta} className="absolute right-2.5 top-2 text-sm leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Dismiss this message">✕</button>

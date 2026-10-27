@@ -812,16 +812,23 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
 
   return (
     <div className={`absolute inset-0 ${active ? (cinema ? "" : "max-sm:flex max-sm:flex-col max-sm:pt-12") : "hidden"}`} aria-hidden={!active}>
-      {/* ══ MAP STAGE — the world plate fitted to the screen: contain, never
+      {/* ══ MAP STAGE — the world plate fitted to its stage: contain, never
           cropped; the stage's ocean gradient fills any slack, and the
-          wrapper's exact viewBox aspect keeps the weather canvas 1:1.
-          sm+: centered overlay. PORTRAIT: the root is a flex column and
-          this wrapper is its first in-flow child — the MAP ZONE, pinned
-          directly under the header overlay; the deck below is the UI zone
-          and nothing in it ever overlaps the map ══ */}
+          plate box's exact viewBox aspect keeps the weather canvas 1:1.
+          sm+ / cinema: the stage fills the screen, the plate centred in
+          it. PORTRAIT: the root is a flex column — header clearance /
+          STAGE / deck — and the stage takes ALL the space between them
+          (flex-1), the plate centred in it as large as the stage allows;
+          the deck below is in flow and nothing in it overlaps the map.
+          With the sheet open the stage caps at the plate's natural
+          height and the deck takes the rest, so the map stays pinned
+          and fully visible above the sheet ══ */}
       <div className={cinema
-          ? "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-          : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-sm:relative max-sm:left-auto max-sm:top-auto max-sm:shrink-0 max-sm:translate-x-0 max-sm:translate-y-0"}
+          ? "absolute inset-0"
+          : sheetTab !== null
+            ? "relative w-full max-sm:min-h-0 max-sm:flex-1 max-sm:max-h-[calc(100vw*520/960)] sm:absolute sm:inset-0"
+            : "relative w-full max-sm:min-h-0 max-sm:flex-1 sm:absolute sm:inset-0"}>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         style={{
           width: "min(100%, calc(100dvh * 960 / 520))", height: "min(100%, calc(100vw * 520 / 960))",
           /* cinema grade: the same atlas, richer — deeper contrast and
@@ -829,8 +836,11 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           filter: cinema ? "saturate(1.3) contrast(1.07) brightness(1.02)" : undefined,
         }}>
         <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} claimIdx={claimIdx} pulse={pulse} shot={shot} cinema={cinema} markers={mapMarkers} animations={animationsOn} />
+        {/* the legend floats over the plate's lower-left ocean on sm+;
+            on phones that spot is southern-hemisphere land, so there the
+            legend lives in the deck's flow instead (see the strip) */}
         {!cinema && (
-          <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:max-w-[94%]"
+          <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:hidden"
             style={{ background: "rgba(4,15,29,0.52)" }}>
             <MapLegend layer={layer} />
           </div>
@@ -843,10 +853,16 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             <span className="block truncate text-[11px]" style={{ color: CREAM }}>{banner.text}</span>
           </div>
         )}
-        {/* framing toggle — offered only when there is something to frame:
-            a scenario's place-focus, or a country the player picked. With
-            neither (a fresh, blank start) the world plate simply shows. */}
-        {!cinema && (framing === "region" || frameIdx !== null) && (
+        {/* framing toggle — offered only when there is something to frame
+            AND the player can see what it is: a place scenario (its place
+            is the run's identity), a country picked this session, or a
+            frame already in force. A focusCode merely restored from a
+            saved run does NOT surface it: that focus is invisible at
+            load, so the button read as a dangling preset ("FRAME REGION"
+            on a fresh-looking screen — Nick's phone, 2026-10-27). The
+            moment he picks a country the toggle appears, and framing
+            still targets the run's focus first, as before. */}
+        {!cinema && (framing === "region" || frameOverride !== null || selectedIdx !== null || !!scenario.focus) && (
           <button
             onClick={() => setFraming(framing === "region" ? "world" : "region")}
             className="absolute left-2 top-12 z-10 rounded border px-2 py-1 text-[10px] font-semibold tracking-[0.14em] backdrop-blur-sm max-sm:top-2"
@@ -856,6 +872,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             {framing === "region" ? "🌐 FULL WORLD" : `◎ FRAME ${scenario.place ?? "REGION"}`}
           </button>
         )}
+      </div>
       </div>
 
       {/* ══ CINEMA — the recording surface: no chrome but the world, a
@@ -953,9 +970,14 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
         </aside>
       )}
 
-      {/* ══ BOTTOM DECK — tabbed sheet, transport strip ══ */}
+      {/* ══ BOTTOM DECK — tabbed sheet, transport strip. PORTRAIT: in
+          flow under the stage at its natural height; only an open sheet
+          makes it flex (the sheet takes the space and the stage caps at
+          the plate's natural height — see the map stage) ══ */}
       {active && !cinema && (
-        <div className="absolute inset-x-0 bottom-0 z-30 flex flex-col max-sm:relative max-sm:inset-auto max-sm:min-h-0 max-sm:flex-1">
+        <div className={sheetTab !== null
+          ? "absolute inset-x-0 bottom-0 z-30 flex flex-col max-sm:relative max-sm:inset-auto max-sm:min-h-0 max-sm:flex-1"
+          : "absolute inset-x-0 bottom-0 z-30 flex flex-col max-sm:relative max-sm:inset-auto"}>
           {/* PORTRAIT UI ZONE — on phones the deck is in-flow below the map
               zone (see the root), so the banner gets a slot of its own here:
               never over the map, never clipped behind the Turning Point card.
@@ -1500,6 +1522,12 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           {/* ══ COLLAPSED STRIP — always visible: transport + view controls ══ */}
           <div className="border-t backdrop-blur-md max-sm:mt-auto"
             style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.88), rgba(3,11,22,0.96))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 -12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(240,192,96,0.14)" }}>
+            {/* the legend's phone home — in normal flow inside the strip's
+                chrome, so it never covers a country; sm+ keeps the
+                overlay on the plate (see the map stage) */}
+            <div className="sm:hidden">
+              <MapLegend layer={layer} />
+            </div>
             <div className="flex flex-col gap-y-1.5 px-2.5 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-1.5 sm:px-3">
               <div className="flex flex-wrap items-center gap-1.5 sm:contents">
               <button
@@ -1550,7 +1578,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 ))}
               </div>
               </div>
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:contents sm:overflow-visible sm:pb-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 max-sm:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-30px),transparent)] max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-30px),transparent)] sm:contents sm:overflow-visible sm:pb-0">
               {idler.claimHere ? (
                 <button onClick={() => { onSelect(idler.claimHere!.idx); setSheetTab("dossier"); }}
                   className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
@@ -1706,6 +1734,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               >
                 ?
               </button>
+              {/* end room so the last button scrolls fully clear of the fade */}
+              <div className="w-7 shrink-0 sm:hidden" aria-hidden />
               </div>
             </div>
           </div>
