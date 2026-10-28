@@ -12,7 +12,7 @@
  * localStorage record that lets a claimed world resume on a return visit.
  */
 import { CODE_IDX, COUNTRIES } from "./data";
-import { simKey, type Boosts, type SimConfig, type SimEvent, type SimResult } from "./engine";
+import { simKey, SUPERPOWER_BOOSTS, type Boosts, type SimConfig, type SimEvent, type SimResult } from "./engine";
 
 /* ------------------------------------------------------------------ paces */
 export type PaceId = "paused" | "watchful" | "brisk";
@@ -51,7 +51,9 @@ export const AWAY_CAP_YEARS = 25;
 /** the one-click "what if X became a superpower" preset — an ordinary run
  *  config (focus + all-in boosts beyond the slider range), so the take is
  *  deterministic, shareable and re-recordable like any other run */
-export const SUPERPOWER_BOOSTS: Boosts = { growth: 150, tech: 140, military: 170, resources: 140 };
+/* the definition lives in engine.ts — the endowment rule keys off the
+ * exact profile — and is re-exported here for existing importers */
+export { SUPERPOWER_BOOSTS };
 
 /* ------------------------------------------------------- run identity */
 /** A claim anchors to a run's LINEAGE: the full sim key minus interventions.
@@ -105,7 +107,7 @@ export const MAJOR_EVENT_KINDS = new Set<SimEvent["kind"]>(["annex", "overtake",
 export const isMajorEvent = (e: SimEvent): boolean => MAJOR_EVENT_KINDS.has(e.kind);
 
 const KIND_WEIGHT: Record<string, number> = {
-  annex: 5, overtake: 5, crisis: 4, breakaway: 3, faith: 3, shock: 2, focus: 2, intervention: 1,
+  annex: 5, overtake: 5, crisis: 4, fold: 4, breakaway: 3, faith: 3, shock: 2, focus: 2, intervention: 1,
 };
 
 /** Away-card ranking tier: 0 = touches the claim, 1 = touches a neighbour

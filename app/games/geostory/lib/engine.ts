@@ -28,6 +28,16 @@ export interface Boosts {
 }
 export const ZERO_BOOSTS: Boosts = { growth: 0, tech: 0, military: 0, resources: 0 };
 
+/** The one-click "what if X became a superpower" preset (lib/idler.ts
+ *  re-exports it). Defined here, not in the idler, because the engine's
+ *  small-nation endowment rule keys off this exact profile. */
+export const SUPERPOWER_BOOSTS: Boosts = { growth: 150, tech: 140, military: 170, resources: 140 };
+
+export function isSuperpowerBoosts(b: Boosts): boolean {
+  return b.growth === SUPERPOWER_BOOSTS.growth && b.tech === SUPERPOWER_BOOSTS.tech &&
+    b.military === SUPERPOWER_BOOSTS.military && b.resources === SUPERPOWER_BOOSTS.resources;
+}
+
 /** A second (or third) hand-boosted country, set up as a rival to the focus. */
 export interface RivalBoost {
   code: string;
@@ -127,6 +137,31 @@ export function simKey(cfg: SimConfig): string {
   return parts.join("|");
 }
 
+/* ---- small-nation endowment (deliberate fantasy lever) ----------------
+ * Boosts multiply growth RATES, so on a micro base they compound a speck
+ * into a slightly larger speck: a max-boosted Puerto Rico (starting GDP
+ * $3B in the old stub data, $105B after the 2026-10-28 data correction)
+ * finished ~#60 of 175 with zero annexations — the fantasy failed only
+ * because the base was three orders of magnitude down. So on a Superpower
+ * run (focus + the exact SUPERPOWER_BOOSTS profile) a claimed nation
+ * starting below ENDOW_GDP_MAX has its starting GDP lifted to
+ * ENDOW_GDP_TARGET — the band where boosted starts are proven to contend
+ * (Philippines, $0.44T, reaches #1 in 5/5 seeds). A pure function of the
+ * config and the baseline table: deterministic, carried by share links,
+ * never applied to AI nations or unclaimed runs. Disclosed in the claim
+ * picker and in the run's own chronicle. See GEOSTORY_TUNING.md. */
+export const ENDOW_GDP_MAX = 0.15; // claimed nations starting under $150B…
+export const ENDOW_GDP_TARGET = 0.45; // …start from a $450B economic base
+
+export function endowmentFor(cfg: SimConfig): { code: string; from: number; to: number } | null {
+  if (!cfg.focusCode) return null;
+  if (CODE_IDX.get(cfg.focusCode) === undefined) return null;
+  if (!isSuperpowerBoosts(cfg.boosts)) return null;
+  const gdp = BASELINE[cfg.focusCode].gdp;
+  if (gdp >= ENDOW_GDP_MAX) return null;
+  return { code: cfg.focusCode, from: gdp, to: ENDOW_GDP_TARGET };
+}
+
 export interface CountrySnap {
   c: number; // controller country index
   i: number; // top influencer index
@@ -150,7 +185,7 @@ export interface FaithStanding {
   countries: number;
 }
 
-export type EventKind = "shock" | "annex" | "breakaway" | "overtake" | "focus" | "crisis" | "intervention" | "faith";
+export type EventKind = "shock" | "annex" | "breakaway" | "overtake" | "focus" | "crisis" | "intervention" | "faith" | "fold";
 export interface SimEvent {
   year: number;
   kind: EventKind;
@@ -205,6 +240,11 @@ interface CState {
      a dominant adjacent bloc grinds a neighbour's effective stability down
      over years instead of the pressure resetting annually */
   strain: number; strainFrom: number; siegeBase: number;
+  /* catch-up momentum (small-nation package): a temporary dividend paid
+     on annexation / fold-in — growth points and an influence-gravity
+     bonus, both decaying ~20%/yr. Zero unless the country has recently
+     taken territory, so dormant arithmetic is untouched until then */
+  mom: number; momGrav: number;
   /* intervention state — all neutral by default, so legacy runs never move */
   techPush: number; techPushUntil: number;
   alignTo: number; alignMult: number; alignUntil: number;
@@ -252,6 +292,49 @@ const STRAIN_HEAL = 0.08; // fraction of strain that heals every year, besieged 
 const STRAIN_INHERIT = 0.25; // fraction of strain kept when the presser changes
 const STRAIN_INFLUENCE = 0.2; // strain at which the presser counts as the dominant influence for the gate, and annexation pressure may pre-accumulate
 
+/* ---- catch-up momentum (small-nation package) --------------------------
+ * On every annexation and fold-in the presser banks a TEMPORARY dividend:
+ * extra growth points and extra influence gravity, decaying ×0.78/yr
+ * (a ~5-year tail). The award fades linearly to ZERO as the presser's
+ * share of world bloc power approaches MOM_SHARE_SCALE: a micro-state
+ * snowballs at full strength; a hegemon — 10%+ of a fragmented world's
+ * power is already hegemony — gets nothing. This is deliberately NOT the
+ * permanent per-annexation growth dividend measured and rejected in the
+ * strain tuning (that one compounded forever, fed the biggest annexers
+ * most, and pushed the dormant panel 565 → 730 annexations with top
+ * blocs at 5,400–12,600), and the share scale is load-bearing, not
+ * decoration: a naive (1 − share) factor still pays a 30%-share leader
+ * 65% strength, which the dormant panel showed balloons its top bloc
+ * 2.5–5×. Temporary + share-scaled-to-zero + capped is the whole design;
+ * the dormant panel is the guard. Formula:
+ *   f = clamp(1 − share / 0.10, 0, 1),  share = blocPow[p] / Σ blocPow
+ *   award_growth = min(CAP, mom + 3.2 × f)
+ *   award_gravity = min(CAP, momGrav + 0.5 × f)                      */
+const MOM_GROW_PER_EVENT = 3.2; // growth points banked per take, at zero world share
+const MOM_GROW_CAP = 4.5; // hard cap on banked growth points
+const MOM_GRAV_PER_EVENT = 0.5; // influence-gravity fraction banked per take, at zero share
+const MOM_GRAV_CAP = 0.65; // hard cap on banked gravity bonus
+const MOM_SHARE_SCALE = 0.1; // award fades to zero at this share of world bloc power
+const MOM_DECAY = 0.78; // yearly retention — a ~5-year tail
+
+/* ---- influence fold-in (small-nation package) ---------------------------
+ * The peaceful path below the war gate — the first-domino mechanic for a
+ * rising small power, which usually cannot besiege anyone for decades.
+ * All conditions must hold (checked yearly, after the annexation pass):
+ * the same power has been the target's #1 influencer for FOLD_STREAK_YEARS
+ * consecutive years; the target's (raw) stability is under FOLD_STAB_MAX;
+ * the presser's bloc power is at least FOLD_POWER_RATIO × the target's;
+ * the target is neither a top-10 power nor a flagged major; and the
+ * presser has not folded anyone in the last FOLD_COOLDOWN_YEARS years.
+ * The fold is annexation-shaped for controller/bloc accounting but is
+ * not a war: no strain, no stability shock, its own event kind, and it
+ * pays momentum like a take. Clients (non-sovereigns) never fold others:
+ * the presser must be sovereign and is judged on its own bloc power. */
+const FOLD_STREAK_YEARS = 5;
+const FOLD_STAB_MAX = 0.5;
+const FOLD_POWER_RATIO = 1.5;
+const FOLD_COOLDOWN_YEARS = 3;
+
 function ownPower(gdp: number, mil: number, tech: number, stab: number): number {
   return Math.pow(Math.max(gdp, 0.001), 0.6) *
     Math.pow(Math.max(mil, 0.05) * (0.4 + tech / 125), 0.4) * (0.72 + 0.28 * stab);
@@ -279,6 +362,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
       growthMod: 0, techMod: 0,
       ctrl: i, pressure: 0, pressureFrom: -1, yearsCtrl: 0,
       strain: 0, strainFrom: -1, siegeBase: 0,
+      mom: 0, momGrav: 0,
       techPush: 0, techPushUntil: 0,
       alignTo: -1, alignMult: 1, alignUntil: 0,
       stabMin: -1, stabMinUntil: 0,
@@ -323,6 +407,19 @@ export function runSimulation(cfg: SimConfig): SimResult {
   if (modSet.has("andes-lithium")) applyBoostMap({ CHL: { minerals: 30, growth: 0.5 }, BOL: { minerals: 34, growth: 0.5 }, ARG: { minerals: 24, growth: 0.4 } });
 
   const events: SimEvent[] = [];
+  /* small-nation endowment: applied to the starting state before the
+   * first year ticks, so the year-0 snapshot already shows the lifted
+   * base (mil follows automatically — it is derived from GDP each year).
+   * A deterministic function of the config (see endowmentFor), so share
+   * links and replays carry it exactly. Announced in the chronicle. */
+  const endow = endowmentFor(cfg);
+  if (endow && focusIdx !== undefined) {
+    st[focusIdx].gdp = endow.to;
+    events.push({
+      year: START_YEAR, kind: "focus",
+      text: `🚀 Small-nation endowment — ${COUNTRIES[focusIdx].name} starts with a great-power economic base (≈$${Math.round(endow.to * 1000)}B), not its own $${Math.round(endow.from * 1000)}B. On a Superpower run, the fantasy is the base as well as the boosts.`,
+    });
+  }
   const years: CountrySnap[][] = [];
   const leaders: { code: string; power: number }[][] = [];
   const attrib: AttribSnap[][] = [];
@@ -344,6 +441,10 @@ export function runSimulation(cfg: SimConfig): SimResult {
   let prevTop: string[] = [];
   let focusBestRank = 999;
   const lastAnnexYear = new Map<number, number>();
+  /* fold-in state: per-country #1-influencer streaks + per-power cooldown */
+  const inflStreakWho = new Int32Array(N).fill(-1);
+  const inflStreakYears = new Int32Array(N).fill(0);
+  const lastFoldYear = new Map<number, number>();
   /* previous-year derived arrays, kept so the year-0 snapshot can be the
    * pristine opening state while later snapshots reuse the computed values */
   let lastMil: number[] = [];
@@ -555,7 +656,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
         // convergence: the richer a country gets, the harder fast growth becomes
         const convergence = Math.min(2.2, Math.max(0, gdppcK - 3) * 0.035);
         let g = base.growth + s.growthAdd + (s.tech - 55) * 0.012 + resScore * 0.9 -
-          (1 - s.stab) * 2.2 + s.growthMod - convergence + rng.range(-0.7, 0.7);
+          (1 - s.stab) * 2.2 + s.growthMod - convergence + rng.range(-0.7, 0.7) + s.mom;
         if (s.ctrl !== i) g -= 0.7; // extraction drag on held territory
         if (pandemic) { g -= 1.6; yrShock[i] -= 1.6; }
         if (s.stab < 0.2) g -= 1.8; // state failure trap
@@ -573,6 +674,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
         s.stab = clamp(s.stab + (base.stability - s.stab) * 0.05 + (g - 2.0) * 0.003 - (s.ctrl !== i ? 0.004 : 0) + rng.range(-0.012, 0.012), 0.04, 0.97);
         if (s.stabMin >= 0 && year < s.stabMinUntil) s.stab = Math.max(s.stab, s.stabMin); // intervention floor
         s.growthMod *= 0.55; // shocks fade
+        s.mom *= MOM_DECAY; s.momGrav *= MOM_DECAY; // momentum fades (~5-year tail)
         if (s.ctrl !== i) s.yearsCtrl++;
       }
 
@@ -582,6 +684,16 @@ export function runSimulation(cfg: SimConfig): SimResult {
       const effGdp = new Array(N).fill(0), effMil = new Array(N).fill(0);
       for (let i = 0; i < N; i++) { effGdp[st[i].ctrl] += st[i].gdp * (st[i].ctrl === i ? 1 : 0.38); effMil[st[i].ctrl] += mil[i] * (st[i].ctrl === i ? 1 : 0.25); }
       const blocPow = st.map((s, i) => (s.ctrl === i ? ownPower(effGdp[i], Math.max(effMil[i], mil[i]), s.tech, s.stab) : 0));
+      /* catch-up momentum: the award scales with (1 − the presser's
+       * share of world bloc power) and is hard-capped — see the momentum
+       * constants. Zero for everyone until a take happens. */
+      const worldPow = blocPow.reduce((a, b) => a + b, 0);
+      const awardMomentum = (p: number) => {
+        const share = worldPow > 0 ? blocPow[p] / worldPow : 0;
+        const f = clamp(1 - share / MOM_SHARE_SCALE, 0, 1);
+        st[p].mom = Math.min(MOM_GROW_CAP, st[p].mom + MOM_GROW_PER_EVENT * f);
+        st[p].momGrav = Math.min(MOM_GRAV_CAP, st[p].momGrav + MOM_GRAV_PER_EVENT * f);
+      };
       const sovereigns = [...Array(N).keys()].filter((i) => st[i].ctrl === i).sort((a, b) => blocPow[b] - blocPow[a]);
       const topPowers = sovereigns.slice(0, 14);
       const blocAdj = (p: number, c: number) => ADJ[c].some((j) => st[j].ctrl === p);
@@ -601,7 +713,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
           // an active trade realignment bends this country's gravity toward
           // (or away from) one chosen power — and only that pairing
           const am = st[c].alignTo === p && year < st[c].alignUntil ? st[c].alignMult : 1;
-          const iv = (blocPow[p] * (0.3 + 0.7 * BASELINE[COUNTRIES[c].code].receptivity)) / (1 + Math.pow(d / 1700, 1.5)) * (adjB > 1 ? 1.45 : 1) * am;
+          const iv = (blocPow[p] * (0.3 + 0.7 * BASELINE[COUNTRIES[c].code].receptivity)) / (1 + Math.pow(d / 1700, 1.5)) * (adjB > 1 ? 1.45 : 1) * am * (1 + st[p].momGrav);
           if (iv > bestIV) { bestIV = iv; bestI = p; }
           const ev = effGdp[p] / (1 + Math.pow(d / 1400, 1.3)) * (adjB > 1 ? 1.5 : 1) * am;
           if (ev > bestEV) { bestEV = ev; bestE = p; }
@@ -610,6 +722,28 @@ export function runSimulation(cfg: SimConfig): SimResult {
         inflVal[c] = bestIV; econVal[c] = bestEV;
       }
       lastInflVal = inflVal; lastEconVal = econVal;
+      /* fold-in bookkeeping: consecutive years each country has spent
+       * under the same dominant partner. The partner is the attrib
+       * track's #1 influencer — EXCEPT where a neighbour's sustained
+       * siege has already made it the decisive relationship: strain at
+       * or beyond STRAIN_INFLUENCE deems the besieger the influencer
+       * for this purpose, the same attribution the annexation gate's
+       * influenceOk already uses (global gravity otherwise keeps
+       * distant giants as every border state's "top influencer"
+       * forever, and no rising neighbour could ever build the streak —
+       * measured: a spec-literal streak hands the claimant's first
+       * domino to a giant, e.g. DOM folds to the USA in 2037 while an
+       * endowed Puerto Rico is still besieging it). The attrib track
+       * itself stays raw gravity; only the fold streak is deemed. */
+      for (let c = 0; c < N; c++) {
+        let who = infl[c];
+        if (st[c].strainFrom >= 0 && st[c].strain >= STRAIN_INFLUENCE &&
+          st[c].strainFrom !== c && st[st[c].strainFrom].ctrl === st[c].strainFrom) {
+          who = st[c].strainFrom;
+        }
+        if (who === inflStreakWho[c]) inflStreakYears[c]++;
+        else { inflStreakWho[c] = who; inflStreakYears[c] = 1; }
+      }
 
       /* ---- territorial change: influence + a wide gap + adjacency + deep
          instability, sustained over years. Deliberately rare — influence and
@@ -706,6 +840,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
             st[c].ctrl = bestP; st[c].pressure = 0; st[c].pressureFrom = -1; st[c].yearsCtrl = 0;
             st[c].strain = 0; st[c].strainFrom = -1; st[c].siegeBase = 0;
             lastAnnexYear.set(bestP, year);
+            awardMomentum(bestP);
             st[c].stab = clamp(st[c].stab - 0.07, 0.04, 0.97); st[c].growthMod -= 1.1; yrShock[c] -= 1.1;
             events.push({ year, kind: "annex", text: `${name(bestP)} takes control of ${name(c)} — years of influence, a wide power gap and local instability finally flip the border${old !== c ? ` (from ${name(old)})` : ""}.` });
           }
@@ -718,6 +853,39 @@ export function runSimulation(cfg: SimConfig): SimResult {
           st[c].ctrl = c; st[c].yearsCtrl = 0;
           events.push({ year, kind: "breakaway", text: `${name(c)} breaks away from ${name(old)} — the cost of holding it finally exceeded the prize.` });
         }
+      }
+
+      /* ---- influence fold-in: the peaceful path below the war gate.
+         A sovereign state that has orbited the same #1 influencer for
+         FOLD_STREAK_YEARS straight years, whose (raw) stability has
+         slipped under FOLD_STAB_MAX, and which is outmatched by at least
+         FOLD_POWER_RATIO× folds into that power's bloc as a client —
+         the first domino a rising small power can actually reach, since
+         it needs gravity, not a siege. Not a war: no strain, no
+         stability shock, its own event kind; it pays momentum like a
+         take. Majors and top-10 powers never fold; the presser must be
+         sovereign (clients fold nobody) and observes a cooldown. */
+      for (let c = 0; c < N; c++) {
+        if (st[c].ctrl !== c) continue;
+        const a = inflStreakWho[c];
+        if (a < 0 || a === c || st[a].ctrl !== a) continue;
+        if (inflStreakYears[c] < FOLD_STREAK_YEARS) continue;
+        if (st[c].stab >= FOLD_STAB_MAX) continue;
+        if (BASELINE[COUNTRIES[c].code].major) continue;
+        if ((rankOf.get(c) ?? 99) <= 10) continue;
+        if (blocPow[a] < FOLD_POWER_RATIO * blocPow[c]) continue;
+        if (year - (lastFoldYear.get(a) ?? -99) < FOLD_COOLDOWN_YEARS) continue;
+        /* contested states do not fold to a third party: a country under
+         * active siege this year by a power other than the streak holder
+         * is fighting over its future, not drifting into an orbit (the
+         * siege's own deemed streak is building in the meantime) */
+        if (presser0[c] >= 0 && presser0[c] !== a) continue;
+        st[c].ctrl = a; st[c].yearsCtrl = 0;
+        st[c].pressure = 0; st[c].pressureFrom = -1;
+        st[c].strain = 0; st[c].strainFrom = -1; st[c].siegeBase = 0;
+        lastFoldYear.set(a, year);
+        awardMomentum(a);
+        events.push({ year, kind: "fold", text: `${name(c)} folds into ${name(a)}'s orbit — ${FOLD_STREAK_YEARS} years as its closest partner, a wobbling state and a wide power gap end with a client flag, not a war.` });
       }
 
       /* ---- overtakes & focus milestones ---- */

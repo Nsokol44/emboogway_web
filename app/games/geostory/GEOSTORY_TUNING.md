@@ -130,3 +130,117 @@ growth multiplier) — measured above to super-charge great powers
 even more — or a focus-only rule, which this project's tuning rules
 forbid (the fix had to be genuinely in the game for every country).
 That trade-off is the project owner's call, not a tuning constant.
+
+## Small-nation package (2026-10-28)
+
+Playtest ask: Nick claimed Puerto Rico on a Superpower run and found a
+world takeover impossible. Diagnosis (measured): PRI's baseline row
+was a hash-fallback stub — gdp 0.003, mil 0 — against a real ~$105B
+economy. Max-boosted PRI finished rank 59–63 across 8 seeds, annexed
+nothing, and ended ~1,500× below world #1. Four parts shipped:
+
+**1. Data correction.** `baseline.json` is generated
+(`scripts/build-geodata.mjs`); 28 of 175 countries were in neither the
+MAJORS nor the SECONDARY table and had hash-invented GDP/population.
+25 are now in SECONDARY with real ~2024 figures (World Bank nominal
+GDP / population unless noted): PRI [0.105, 3.2] (its derived mil
+comes out 1.7 — the JAM 0.2 / CUB 1.4 / DOM 2.8 neighbourhood), LUX
+[0.093, 0.7] (was gdp 0.003!), BGR [0.113, 6.4] (was pop 0.9M), KOS,
+PSE, BHS, NCL, SLE, GNQ, FJI, SWZ, LBR, DJI, BLZ, BTN, GRL, CAF, BDI
+[0.003, 13.7] (was gdp 0.017 / pop 1.8M — wrong in both directions),
+GMB, GNB, LSO, SLB, VUT, ERI (decade-stale official data; standard
+estimates), NCY (TRNC-published figures, contested). Left alone, with
+reasons: ESH and SOL (no justifiable GDP series exists), FLK (real
+GDP ≈ 0.0003 is below the table's 0.001 resolution and its population
+rounds to 0.0). The hand tables themselves audited clean — every
+sub-$700 gdppc row is a genuinely poor or conflict state. The
+sim-check digest changes with this build; that is the correction
+working, not a regression.
+
+**2. Endowment.** On a Superpower run (focus + the exact
+SUPERPOWER_BOOSTS profile, now defined in engine.ts and re-exported
+by idler.ts), a claimed nation starting under $150B has its starting
+GDP lifted to $450B inside runSimulation's setup — deterministic in
+the config, carried by share links, never applied to AI or unclaimed
+runs, announced in the run's chronicle and disclosed in the claim
+picker, the dossier button and the run's anchor message. Two
+calibrations vs the original sketch, both forced by the data fix:
+the gate is $150B, not $50B (the $50B figure was calibrated against
+the $3B stub; real Puerto Rico is $105B and is the country the
+package exists for), and the target is $450B, the top of the agreed
+range — $300B measured short (below).
+
+**3. Momentum.** On annexation and on fold-in the presser banks a
+temporary dividend, decaying ×0.78/yr (~5-year tail):
+`f = clamp(1 − share/0.10, 0, 1)` with share = the presser's bloc
+share of world power; growth banked = min(4.5, mom + 3.2·f); gravity
+banked = min(0.65, momGrav + 0.5·f). The share scale is load-bearing:
+a naive (1 − share) factor still pays a 30%-share leader 65%
+strength, and the dormant panel showed its top blocs ballooning
+2.5–5× (partition-measured: momentum, not folds, was ~85% of the
+balloon). With the 0.10 scale the dormant world is back at baseline
+(below). This is not the rejected conquest dividend: temporary,
+capped, and zero for anyone holding a tenth of the world.
+
+**4. Fold-in.** A sovereign B folds into A's bloc as a client when:
+(a) A has been B's dominant partner for 5 consecutive years; (b) B's
+stability < 0.50; (c) A's bloc power ≥ 1.5× B's; (d) B is neither a
+top-10 power nor a flagged major; (e) A has folded nobody in 3
+years. Annexation-shaped for controller/bloc accounting, but not a
+war: no strain, no stability shock, its own event kind and text
+("B folds into A's orbit" — never war-parseable), and it pays
+momentum. Clients never fold others. Two attribution rules, both
+measured necessities, both mirroring the engine's own precedents:
+the streak's "dominant partner" deems a besieger whose strain on B
+is ≥ STRAIN_INFLUENCE to be B's partner (the same deeming the
+annexation gate's influenceOk uses — raw global gravity keeps
+distant giants as every border state's #1 influencer forever, and a
+spec-literal streak measured DOM folding into the USA's orbit in
+2037 while an endowed Puerto Rico was still besieging it: the
+claimant's first domino handed to a giant), and a state under active
+siege by a third power does not fold (it is contested, in the spirit
+of condition (d)'s eligibility carve-outs). In dormant worlds folds
+are frequent (~40/run — giants absorbing unstable micro-states as
+clients; clients can still break away) while every guard metric
+stays at baseline.
+
+**Panels** (`scripts/small-nation-panel.ts`; multipolar, Superpower
+boosts, 12 seeds; dormant = sim-check's 10 configs):
+
+| panel | before | after |
+|---|---|---|
+| PRI final rank | 59–63 (8 seeds), 0 takes | **5 in 12/12**, bloc ~70–97, DOM + HTI taken in most seeds |
+| MDG final rank | ~8–15, median bloc ≈ 11 | **3–5**, median bloc ≈ 140, TZA/BDI chain in good seeds |
+| Dormant annexations (10 runs) | 565 | 623 (band 450–700) |
+| Dormant top blocs | 691–1337 | 680–1360 (all within 1.5× of before, most within ±10%) |
+
+**The acceptance targets (PRI #1 ≥ 3/12 and top-3 ≥ 8/12; MDG #1
+≥ 3/12) are NOT met, and the shortfall is structural, not tuning.**
+PRI finishes #5 in every seed because its entire feasible frontier
+is DOM (folds/flips to PRI now), HTI (stability anchor 0.63) and CUB
+(anchor 0.37, but the USA is permanently its max-ratio presser and
+gravity influencer — the Caribbean is a USA lake in this engine);
+JAM/BHS sit at 0.71 stability and can neither fold nor be ground
+down in time. Even eating all three, PRI's bloc (~90) is an order of
+magnitude under the winner's (~1250) — the same scale wall the
+entertainment-bar section measured, compounded by the convergence
+regime: an endowed micro-state's GDP per capita (~$140k) pays the
+maximum −2.2 growth drag all century, where a Philippines start
+($3.7k) pays ~0. MDG's frontier is MOZ (anchor 0.79 — it can be
+ground but never folds) and the TZA chain; it now reaches #3–5 but
+not #1. Closing the remaining gap needs one of the owner's-call
+levers the entertainment-bar section already flagged — a demographic
+component to the endowment (lifting population as well as GDP), or a
+focus-only rule, which this project's tuning rules forbid — or
+accepting regional-hegemon outcomes for micro claimants. The package
+as shipped takes PRI from rank ~60 to #5 and MDG from ~#11 to #3–5
+with the dormant world untouched; the last step is a design
+decision, not a constant.
+
+**Effect on a normal unclaimed world, honestly:** Puerto Rico and
+24 other countries have real economies now (Luxembourg is no longer
+poorer than Haiti); unstable micro-states sometimes drift into a
+great power's orbit peacefully instead of only ever being conquered
+or ignored; momentum is invisible at giant scale by construction.
+Nothing else moves: annexation totals, top blocs and the religion
+track all sit at their pre-package values.

@@ -29,9 +29,10 @@ const KIND_STYLE: Record<string, string> = {
   crisis: "#a58fd0",
   intervention: "#f0c060",
   faith: "#c9a0dc",
+  fold: "#4fb8c9",
 };
 /** chronicle entries that get the strong treatment */
-const MAJOR_KINDS = new Set<SimEvent["kind"]>(["overtake", "annex", "crisis", "intervention"]);
+const MAJOR_KINDS = new Set<SimEvent["kind"]>(["overtake", "annex", "crisis", "intervention", "fold"]);
 
 const CREAM = "#f7f0e3";
 const PARCH = "#cdbfa5";
@@ -1428,7 +1429,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               onClick={() => { if (selectedIdx !== null) idler.onSuperpower(selectedIdx); }}
               className="rounded border px-2.5 py-1.5 text-[11px] font-semibold tracking-wider hover:opacity-85"
               style={{ borderColor: "rgba(240,192,96,0.55)", color: GOLD, background: "rgba(201,150,58,0.07)" }}
-              title="One-click what-if: this nation gets everything — growth, tech, arms, resources — and the run restarts at 2026, running at Brisk"
+              title="One-click what-if: this nation gets everything — growth, tech, arms, resources — and the run restarts at 2026, running at Brisk. Small-nation endowment: a nation starting under $150B also begins from a great-power economic base (≈$450B)."
             >
               🚀 SUPERPOWER RUN
             </button>

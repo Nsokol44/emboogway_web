@@ -1,9 +1,9 @@
 {
  "FJI": {
-  "gdp": 0.014,
-  "pop": 1.4,
+  "gdp": 0.006,
+  "pop": 0.9,
   "mil": 0.1,
-  "tech": 45,
+  "tech": 41,
   "energy": 51,
   "minerals": 38,
   "food": 43,
@@ -247,10 +247,10 @@
   "major": true
  },
  "BHS": {
-  "gdp": 0.005,
-  "pop": 2.5,
-  "mil": 0.1,
-  "tech": 32,
+  "gdp": 0.014,
+  "pop": 0.4,
+  "mil": 0.2,
+  "tech": 65,
   "energy": 20,
   "minerals": 62,
   "food": 69,
@@ -286,10 +286,10 @@
   "major": true
  },
  "GRL": {
-  "gdp": 0.01,
-  "pop": 0.9,
-  "mil": 0.3,
-  "tech": 46,
+  "gdp": 0.003,
+  "pop": 0.1,
+  "mil": 0.1,
+  "tech": 64,
   "energy": 38,
   "minerals": 25,
   "food": 30,
@@ -325,10 +325,10 @@
   "major": true
  },
  "LSO": {
-  "gdp": 0.014,
-  "pop": 0.3,
-  "mil": 0.3,
-  "tech": 64,
+  "gdp": 0.002,
+  "pop": 2.4,
+  "mil": 0,
+  "tech": 23,
   "energy": 52,
   "minerals": 13,
   "food": 45,
@@ -494,10 +494,10 @@
   "major": false
  },
  "BLZ": {
-  "gdp": 0.008,
-  "pop": 1.6,
-  "mil": 0.1,
-  "tech": 41,
+  "gdp": 0.003,
+  "pop": 0.4,
+  "mil": 0,
+  "tech": 47,
   "energy": 29,
   "minerals": 42,
   "food": 76,
@@ -572,10 +572,10 @@
   "major": false
  },
  "PRI": {
-  "gdp": 0.003,
-  "pop": 2,
-  "mil": 0,
-  "tech": 27,
+  "gdp": 0.105,
+  "pop": 3.2,
+  "mil": 1.7,
+  "tech": 62,
   "energy": 10,
   "minerals": 50,
   "food": 56,
@@ -793,10 +793,10 @@
   "major": false
  },
  "GNB": {
-  "gdp": 0.005,
-  "pop": 2.4,
-  "mil": 0.1,
-  "tech": 33,
+  "gdp": 0.002,
+  "pop": 2.2,
+  "mil": 0,
+  "tech": 26,
   "energy": 20,
   "minerals": 59,
   "food": 67,
@@ -806,10 +806,10 @@
   "major": false
  },
  "LBR": {
-  "gdp": 0.007,
-  "pop": 1.6,
+  "gdp": 0.005,
+  "pop": 5.6,
   "mil": 0.1,
-  "tech": 41,
+  "tech": 27,
   "energy": 28,
   "minerals": 41,
   "food": 75,
@@ -819,10 +819,10 @@
   "major": false
  },
  "SLE": {
-  "gdp": 0.016,
-  "pop": 0.7,
-  "mil": 0.4,
-  "tech": 58,
+  "gdp": 0.008,
+  "pop": 8.6,
+  "mil": 0.2,
+  "tech": 24,
   "energy": 60,
   "minerals": 20,
   "food": 53,
@@ -845,10 +845,10 @@
   "major": false
  },
  "CAF": {
-  "gdp": 0.008,
-  "pop": 1.9,
-  "mil": 0.1,
-  "tech": 42,
+  "gdp": 0.003,
+  "pop": 5.5,
+  "mil": 0,
+  "tech": 25,
   "energy": 32,
   "minerals": 47,
   "food": 82,
@@ -884,9 +884,9 @@
   "major": false
  },
  "GNQ": {
-  "gdp": 0.004,
-  "pop": 1,
-  "mil": 0.1,
+  "gdp": 0.007,
+  "pop": 1.9,
+  "mil": 0.2,
   "tech": 37,
   "energy": 82,
   "minerals": 20,
@@ -936,10 +936,10 @@
   "major": false
  },
  "SWZ": {
-  "gdp": 0.013,
-  "pop": 2.5,
-  "mil": 0.2,
-  "tech": 37,
+  "gdp": 0.005,
+  "pop": 1.2,
+  "mil": 0.1,
+  "tech": 35,
   "energy": 49,
   "minerals": 62,
   "food": 38,
@@ -962,10 +962,10 @@
   "major": true
  },
  "BDI": {
-  "gdp": 0.017,
-  "pop": 1.8,
-  "mil": 0.2,
-  "tech": 46,
+  "gdp": 0.003,
+  "pop": 13.7,
+  "mil": 0,
+  "tech": 18,
   "energy": 61,
   "minerals": 46,
   "food": 52,
@@ -1014,10 +1014,10 @@
   "major": false
  },
  "PSE": {
-  "gdp": 0.013,
-  "pop": 2.5,
+  "gdp": 0.014,
+  "pop": 5.5,
   "mil": 0.3,
-  "tech": 37,
+  "tech": 30,
   "energy": 48,
   "minerals": 62,
   "food": 38,
@@ -1027,10 +1027,10 @@
   "major": false
  },
  "GMB": {
-  "gdp": 0.007,
-  "pop": 1.6,
-  "mil": 0.1,
-  "tech": 40,
+  "gdp": 0.002,
+  "pop": 2.7,
+  "mil": 0,
+  "tech": 26,
   "energy": 25,
   "minerals": 41,
   "food": 75,
@@ -1144,10 +1144,10 @@
   "major": false
  },
  "VUT": {
-  "gdp": 0.009,
-  "pop": 0.7,
-  "mil": 0.2,
-  "tech": 46,
+  "gdp": 0.001,
+  "pop": 0.3,
+  "mil": 0,
+  "tech": 31,
   "energy": 35,
   "minerals": 22,
   "food": 26,
@@ -1287,10 +1287,10 @@
   "major": true
  },
  "BTN": {
-  "gdp": 0.012,
-  "pop": 2.3,
-  "mil": 0.2,
-  "tech": 37,
+  "gdp": 0.003,
+  "pop": 0.8,
+  "mil": 0.1,
+  "tech": 33,
   "energy": 44,
   "minerals": 57,
   "food": 33,
@@ -1573,10 +1573,10 @@
   "major": true
  },
  "BGR": {
-  "gdp": 0.01,
-  "pop": 0.9,
-  "mil": 0.3,
-  "tech": 46,
+  "gdp": 0.113,
+  "pop": 6.4,
+  "mil": 2.9,
+  "tech": 51,
   "energy": 39,
   "minerals": 26,
   "food": 30,
@@ -1651,10 +1651,10 @@
   "major": true
  },
  "LUX": {
-  "gdp": 0.003,
-  "pop": 2,
-  "mil": 0,
-  "tech": 27,
+  "gdp": 0.093,
+  "pop": 0.7,
+  "mil": 1.2,
+  "tech": 80,
   "energy": 10,
   "minerals": 49,
   "food": 56,
@@ -1729,10 +1729,10 @@
   "major": false
  },
  "NCL": {
-  "gdp": 0.004,
-  "pop": 2.2,
-  "mil": 0.1,
-  "tech": 30,
+  "gdp": 0.01,
+  "pop": 0.3,
+  "mil": 0.2,
+  "tech": 63,
   "energy": 15,
   "minerals": 54,
   "food": 61,
@@ -1742,10 +1742,10 @@
   "major": false
  },
  "SLB": {
-  "gdp": 0.01,
-  "pop": 0.9,
-  "mil": 0.3,
-  "tech": 46,
+  "gdp": 0.002,
+  "pop": 0.8,
+  "mil": 0.1,
+  "tech": 29,
   "energy": 39,
   "minerals": 26,
   "food": 30,
@@ -1989,10 +1989,10 @@
   "major": false
  },
  "ERI": {
-  "gdp": 0.014,
-  "pop": 0.3,
-  "mil": 0.3,
-  "tech": 65,
+  "gdp": 0.002,
+  "pop": 3.7,
+  "mil": 0,
+  "tech": 20,
   "energy": 51,
   "minerals": 12,
   "food": 44,
@@ -2055,9 +2055,9 @@
  },
  "NCY": {
   "gdp": 0.007,
-  "pop": 1.6,
+  "pop": 0.4,
   "mil": 0.1,
-  "tech": 40,
+  "tech": 57,
   "energy": 26,
   "minerals": 42,
   "food": 76,
@@ -2132,10 +2132,10 @@
   "major": true
  },
  "DJI": {
-  "gdp": 0.011,
-  "pop": 0.9,
-  "mil": 0.3,
-  "tech": 46,
+  "gdp": 0.004,
+  "pop": 1.2,
+  "mil": 0.1,
+  "tech": 32,
   "energy": 41,
   "minerals": 25,
   "food": 29,
@@ -2236,10 +2236,10 @@
   "major": false
  },
  "KOS": {
-  "gdp": 0.004,
-  "pop": 2.3,
-  "mil": 0.1,
-  "tech": 29,
+  "gdp": 0.011,
+  "pop": 1.7,
+  "mil": 0.2,
+  "tech": 43,
   "energy": 14,
   "minerals": 55,
   "food": 62,

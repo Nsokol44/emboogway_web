@@ -101,6 +101,19 @@ const SECONDARY = {
   GIN: [0.024, 14.5], BEN: [0.021, 13.7], RWA: [0.014, 14.2], MRT: [0.011, 4.9], TGO: [0.010, 9],
   COD: [0.07, 105], COG: [0.015, 6.2], GAB: [0.021, 2.4], NAM: [0.013, 3.0], BWA: [0.019, 2.5],
   MWI: [0.013, 21], TLS: [0.002, 1.4], BRN: [0.016, 0.45],
+  /* small-nation data correction (2026-10-28): these rows were NOT in any
+     table, so the hash fallback below invented their GDP/pop (PRI got
+     $3B and no army; Luxembourg got $3B too; Bulgaria 0.9M people).
+     Figures are real ~2024 nominal GDP / population (World Bank unless
+     noted) — see GEOSTORY_TUNING.md "Small-nation package" for sources
+     and the rows deliberately left alone (ESH, SOL, FLK). */
+  PRI: [0.105, 3.2], LUX: [0.093, 0.7], BGR: [0.113, 6.4], KOS: [0.011, 1.7],
+  PSE: [0.014, 5.5], BHS: [0.014, 0.4], NCL: [0.010, 0.3], SLE: [0.008, 8.6],
+  GNQ: [0.007, 1.9], FJI: [0.006, 0.9], SWZ: [0.005, 1.2], LBR: [0.005, 5.6],
+  DJI: [0.004, 1.2], BLZ: [0.003, 0.4], BTN: [0.003, 0.8], GRL: [0.003, 0.06],
+  CAF: [0.003, 5.5], BDI: [0.003, 13.7], GMB: [0.002, 2.7], GNB: [0.002, 2.2],
+  LSO: [0.002, 2.4], SLB: [0.002, 0.8], VUT: [0.001, 0.3], ERI: [0.002, 3.7],
+  NCY: [0.007, 0.4],
 };
 // resource overrides for non-majors: [energy, minerals, food]
 const RES_OVERRIDES = {

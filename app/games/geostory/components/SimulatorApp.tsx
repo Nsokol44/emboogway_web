@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WaitlistForm from "@/components/WaitlistForm";
 import { CODE_IDX, COUNTRIES, END_YEAR, START_YEAR } from "../lib/data";
-import { ZERO_BOOSTS, runSimulation, type SimConfig, type SimEvent } from "../lib/engine";
+import { ZERO_BOOSTS, endowmentFor, runSimulation, type SimConfig, type SimEvent } from "../lib/engine";
 import {
   SUPERPOWER_BOOSTS, awayHeadlines, computeCatchUp, lineageKey, loadIdlerRecord,
   paceDef, rankAt, saveIdlerRecord, type PaceId,
@@ -284,6 +284,8 @@ function ClaimPicker({ panelNo, yearIdx, result, currentClaimCode, onPick, onSup
         <p className="mt-3 text-[11px]" style={{ color: FAINT }}>
           Prefer the map? Tap any country, then ⚑ CLAIM in its dossier. A 🚀 Superpower run restarts this
           sim at 2026 with the boost applied — same seed, same settings, fully reproducible.
+          Small-nation endowment: a Superpower run on a nation starting under $150B also lifts it to a
+          great-power economic base (≈$450B) at 2026 — the fantasy is the base, not just the boosts.
         </p>
       </div>
     </div>
@@ -640,7 +642,8 @@ export default function SimulatorApp() {
     lastPaceRef.current = "brisk";
     setPace("brisk");
     setPickerOpen(false);
-    pushAnchor(START_YEAR, `🚀 SUPERPOWER RUN — ${COUNTRIES[idx].name} gets everything: growth, tech, arms, resources, all-in. Same seed, same world — watch it climb.`);
+    const endow = endowmentFor(cfg);
+    pushAnchor(START_YEAR, `🚀 SUPERPOWER RUN — ${COUNTRIES[idx].name} gets everything: growth, tech, arms, resources, all-in. Same seed, same world — watch it climb.${endow ? ` Small-nation endowment: it starts under $150B, so it also begins from a great-power economic base (≈$450B).` : ""}`);
   }, [activePanel, pushAnchor]);
 
   const jumpToClaim = useCallback(() => {
