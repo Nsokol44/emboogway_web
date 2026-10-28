@@ -420,7 +420,11 @@ function PackList({ hud }: { hud: HudSnapshot }) {
         ))}
       </ul>
       <p className="mt-3 border-t border-white/10 pt-2 text-[11px] leading-relaxed text-white/50">
-        Weight slows you and widens the ring of noise around you (now ≈ {hud.noiseRadius.toFixed(0)} m across).
+        {hud.noiseRadius > 0 ? (
+          <>Weight slows you and widens the ring of noise around you (now ≈ {(hud.noiseRadius * 2).toFixed(1)} m across).</>
+        ) : (
+          <>Weight slows you and widens the ring of noise around you — but standing still you are silent: no ring, no noise.</>
+        )}{" "}
         Dropped things stay where they fall — walk over them to pick them back up.
       </p>
     </div>

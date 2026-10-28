@@ -1046,11 +1046,12 @@ export class HillsEngine {
       if (this.fogThick) noise *= 1.5;
     }
     this.noiseRadius = noise;
-    this.ring.visible = true;
-    this.ringFill.visible = true;
-    const rr = Math.max(noise, 0.6);
-    this.ring.scale.setScalar(rr);
-    this.ringFill.scale.setScalar(rr);
+    /* the drawn ring IS the noise radius — one value, no display fudge:
+       silent (radius 0) draws no ring at all, and the pack panel says so */
+    this.ring.visible = noise > 0;
+    this.ringFill.visible = noise > 0;
+    this.ring.scale.setScalar(noise);
+    this.ringFill.scale.setScalar(noise);
     this.ring.position.set(this.playerPos.x, this.playerPos.y + 0.18, this.playerPos.z);
     this.ringFill.position.copy(this.ring.position);
     (this.ring.material as THREE.MeshBasicMaterial).opacity = moving ? 0.5 + 0.18 * Math.sin(this.fogTime * 5) : 0.25;
