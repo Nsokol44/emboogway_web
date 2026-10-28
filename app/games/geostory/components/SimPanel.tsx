@@ -715,6 +715,33 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
     return () => { if (chromeTimerRef.current) window.clearTimeout(chromeTimerRef.current); };
   }, [cinemaOn, wakeChrome]);
 
+  /* ── Legend lift (sm+ overlay): the plate is centred on the full
+     viewport, so its bottom band lies UNDER the bottom deck — the deck
+     (z-30, near-opaque gradient) paints over anything anchored to the
+     plate's bottom edge, which is why a bottom-1 legend card was laid
+     out perfectly yet never seen (hit-tests at its title returned the
+     transport strip). The card therefore rides this many px up from
+     the plate's bottom edge: exactly the plate/strip overlap + a small
+     gap, measured live so it holds at any viewport and strip height.
+     Below sm the overlay is hidden and the legend lives in the strip's
+     flow instead, so the lift is never applied there. ── */
+  const plateBoxRef = useRef<HTMLDivElement | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const [legendLift, setLegendLift] = useState(4);
+  useEffect(() => {
+    const plate = plateBoxRef.current, strip = stripRef.current;
+    if (!plate || !strip) return;
+    const measure = () => {
+      const p = plate.getBoundingClientRect(), s = strip.getBoundingClientRect();
+      if (p.height === 0 || s.height === 0) return;
+      setLegendLift(Math.max(4, Math.round(p.bottom - s.top) + 6));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(plate); ro.observe(strip);
+    return () => ro.disconnect();
+  }, [cinema, active]);
+
   /* ── Highlights: the take plan. The century is deterministic, so every
      notable beat can be listed before a recording starts — majors, falls,
      breakaways, and anything that names the focus or the anchor. */
@@ -828,7 +855,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           : sheetTab !== null
             ? "relative w-full max-sm:min-h-0 max-sm:flex-1 max-sm:max-h-[calc(100vw*520/960)] sm:absolute sm:inset-0"
             : "relative w-full max-sm:min-h-0 max-sm:flex-1 sm:absolute sm:inset-0"}>
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+      <div ref={plateBoxRef} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         style={{
           width: "min(100%, calc(100dvh * 960 / 520))", height: "min(100%, calc(100vw * 520 / 960))",
           /* cinema grade: the same atlas, richer — deeper contrast and
@@ -836,12 +863,14 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           filter: cinema ? "saturate(1.3) contrast(1.07) brightness(1.02)" : undefined,
         }}>
         <WorldMap result={result} yearFloat={yearFloat} layer={layer} selectedIdx={selectedIdx} onSelect={onSelect} uid={uid} framing={framing} frameIdx={frameIdx} diffResult={diffResult} terrainArt={terrainArt} weather={weather} flowIdx={flowOn ? selectedIdx : null} claimIdx={claimIdx} pulse={pulse} shot={shot} cinema={cinema} markers={mapMarkers} animations={animationsOn} />
-        {/* the legend floats over the plate's lower-left ocean on sm+;
-            on phones that spot is southern-hemisphere land, so there the
-            legend lives in the deck's flow instead (see the strip) */}
+        {/* the legend floats over the plate's lower-left ocean on sm+,
+            lifted clear of the transport strip that overlays the plate's
+            bottom band (see legendLift); on phones that spot is
+            southern-hemisphere land, so there the legend lives in the
+            deck's flow instead (see the strip) */}
         {!cinema && (
-          <div className="pointer-events-none absolute bottom-1 left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:hidden"
-            style={{ background: "rgba(4,15,29,0.52)" }}>
+          <div className="pointer-events-none absolute left-1.5 z-10 max-w-[78%] rounded-md backdrop-blur-[2px] max-sm:hidden"
+            style={{ background: "rgba(4,15,29,0.52)", bottom: legendLift }}>
             <MapLegend layer={layer} />
           </div>
         )}
@@ -1520,7 +1549,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           )}
 
           {/* ══ COLLAPSED STRIP — always visible: transport + view controls ══ */}
-          <div className="border-t backdrop-blur-md max-sm:mt-auto"
+          <div ref={stripRef} className="border-t backdrop-blur-md max-sm:mt-auto"
             style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.88), rgba(3,11,22,0.96))", borderColor: "rgba(201,150,58,0.45)", boxShadow: "0 -12px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(240,192,96,0.14)" }}>
             {/* the legend's phone home — in normal flow inside the strip's
                 chrome, so it never covers a country; sm+ keeps the
