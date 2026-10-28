@@ -25,15 +25,16 @@ export default function Nav() {
     { href: "/games/waytable", label: "Waytable" },
     { href: "/games/the-dm", label: "The DM" },
     { href: "/games/geostory", label: "Geostory" },
+    { href: "/games/what-we-left-in-the-hills", label: "The Hills" },
     { href: "/devlog", label: "Devlog" },
     { href: "/lore", label: "Lore" },
     { href: "/studio", label: "Studio" },
   ];
 
-  /* GeoStory: the simulator is a full-screen stage, so the site header
+  /* GeoStory + The Hills: full-screen game stages, so the site header
      shrinks to a slim translucent overlay — logo + links, click-through
      everywhere except on the links themselves. */
-  if (mounted && pathname === "/games/geostory") {
+  if (mounted && (pathname === "/games/geostory" || pathname === "/games/what-we-left-in-the-hills")) {
     return (
       <nav className="pointer-events-none fixed inset-x-0 top-0 z-40 bg-gradient-to-b from-[#030b16]/85 via-[#030b16]/45 to-transparent">
         <div className="flex items-center justify-between px-4 py-2.5 sm:px-6">

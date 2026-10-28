@@ -147,6 +147,31 @@ export default function Home() {
                 </div>
               </div>
             </Link>
+
+            {/* What We Left in The Hills */}
+            <Link href="/games/what-we-left-in-the-hills" className="group block reveal-right">
+              <div className="relative rounded-xl overflow-hidden border p-12 hover-lift h-full"
+                style={{ background: "linear-gradient(135deg, #0d130e, #18251b)", borderColor: "rgba(127,231,210,0.28)" }}>
+                <div className="absolute top-0 right-0 w-48 h-48 rounded-full" style={{ background: "radial-gradient(circle, rgba(127,231,210,0.12) 0%, transparent 70%)" }} />
+                <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 transition-colors duration-300" style={{ borderColor: "rgba(127,231,210,0.4)" }} />
+                <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 transition-colors duration-300" style={{ borderColor: "rgba(127,231,210,0.4)" }} />
+
+                <div className="font-display text-xs tracking-widest mb-4" style={{ color: "#7fe7d2" }}>SURVIVAL ESCAPE · PLAYABLE IN BROWSER</div>
+                <h3 className="font-display leading-none mb-4" style={{ fontSize: "clamp(30px, 4vw, 52px)", color: "#e9f5ee" }}>WHAT WE LEFT IN THE HILLS</h3>
+                <p className="text-sm leading-relaxed mb-8" style={{ color: "#93a893" }}>
+                  You came out of an Appalachian holler carrying everything you could — and everything you carry makes noise. Monsters hunt by ear, the fog lies to yours, and nightfall is seven minutes out. What you drop stays in the hills.
+                </p>
+                <div className="flex flex-wrap gap-2 mb-8">
+                  {["Third Person", "Stealth by Ear", "Fog & Monsters", "Single Player", "Free"].map(tag => (
+                    <span key={tag} className="tag text-xs px-3 py-1 rounded-full font-medium border"
+                      style={{ background: "rgba(127,231,210,0.1)", color: "#7fe7d2", borderColor: "rgba(127,231,210,0.3)" }}>{tag}</span>
+                  ))}
+                </div>
+                <div className="font-display text-sm tracking-widest transition-colors flex items-center gap-2" style={{ color: "#7fe7d2" }}>
+                  PLAY IN BROWSER <span className="group-hover:translate-x-2 transition-transform duration-300 inline-block">→</span>
+                </div>
+              </div>
+            </Link>
           </div>
         </div>
       </section>
