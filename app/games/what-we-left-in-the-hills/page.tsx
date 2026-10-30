@@ -47,12 +47,15 @@ export default function WhatWeLeftInTheHills() {
             Keep the fiddle and everybody in the holler knows where you are.
           </p>
           <p className="leading-relaxed" style={{ color: PARCH }}>
-            The monsters are never named and never quite seen — tall shapes in the fog, known by sound. Their
-            growls are real spatial audio: louder and to the left means closer and to the left. The fog rolls
-            in and out, hides you, slows you, and lies to you. Seven minutes to nightfall.
+            The tall shapes are never quite seen — only heard, and known by their states: unaware, curious,
+            hunting, chasing. The Traces scattered through the holler tell you who they were: people who tried
+            to move west through these mountains and never made it through. Their growls are real spatial
+            audio: louder and to the left means closer and to the left. The fog rolls in and out, hides you,
+            slows you, and lies to you. Bank escapes and Traces to level up and unlock perks. Seven minutes
+            to nightfall — or out by the rail tunnel, if you take the long way.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
-            {["Third Person", "Survival Escape", "Stealth by Ear", "Appalachia", "Single Player", "Free in Browser"].map((tag) => (
+            {["Third Person", "Survival Escape", "Stealth by Ear", "Appalachia", "Lore Traces", "Perks & Levels", "Single Player", "Free in Browser"].map((tag) => (
               <span
                 key={tag}
                 className="rounded-full border px-3 py-1 text-xs"

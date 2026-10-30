@@ -5,11 +5,14 @@
    mobile controls, end screens. The engine (lib/engine.ts) owns the world;
    this file owns everything a player reads. */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { HillsEngine, type HudSnapshot } from "../lib/engine";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { HillsEngine, TRACES, type HudSnapshot } from "../lib/engine";
+import { DIFFICULTIES, PERKS, levelForXp, perkById, xpForProgress, type DifficultyId, type PerkId } from "../lib/progression";
 
 const GUIDE_KEY = "wwlith-guide-v1";
 const BEST_KEY = "wwlith-best-v1";
+const PROGRESS_KEY = "wwlith-progress-v2";
+const SETTINGS_KEY = "wwlith-settings-v1";
 const MOON = "#7fe7d2";
 const GOLD = "#f0c060";
 const CREAM = "#f3ead6";
@@ -18,6 +21,40 @@ interface Best {
   best: number;
   escapes: number;
   runs: number;
+}
+interface Progress {
+  banked: number;
+  escapes: number;
+  runs: number;
+  best: number;
+  traces: string[];
+}
+function loadProgress(): Progress {
+  const base = loadBest();
+  const out: Progress = { banked: 0, escapes: base.escapes, runs: base.runs, best: base.best, traces: [] };
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY);
+    if (raw) return { ...out, ...(JSON.parse(raw) as Progress) };
+  } catch {
+    /* ignore */
+  }
+  return out;
+}
+interface Settings {
+  difficulty: DifficultyId;
+  perkId: PerkId | null;
+  reducedHallucinations: boolean;
+  soundIndicator: boolean;
+}
+function loadSettings(): Settings {
+  const out: Settings = { difficulty: "standard", perkId: null, reducedHallucinations: false, soundIndicator: true };
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (raw) return { ...out, ...(JSON.parse(raw) as Settings) };
+  } catch {
+    /* ignore */
+  }
+  return out;
 }
 function loadBest(): Best {
   try {
@@ -65,6 +102,11 @@ export default function HillsGame() {
   const [cinema, setCinema] = useState(false);
   const [packOpen, setPackOpen] = useState(false);
   const [best, setBest] = useState<Best>({ best: 0, escapes: 0, runs: 0 });
+  const [progress, setProgress] = useState<Progress>({ banked: 0, escapes: 0, runs: 0, best: 0, traces: [] });
+  const [settings, setSettings] = useState<Settings>({ difficulty: "standard", perkId: null, reducedHallucinations: false, soundIndicator: true });
+  const [seed, setSeed] = useState("daily");
+  const [paused, setPaused] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(false);
   const recordedOutcome = useRef<object | null>(null);
 
   useEffect(() => {
@@ -85,6 +127,11 @@ export default function HillsGame() {
       setGuideStep(0);
     }
     setBest(loadBest());
+    setProgress(loadProgress());
+    setSettings(loadSettings());
+    const params = new URLSearchParams(window.location.search);
+    const paramSeed = params.get("seed");
+    setSeed(paramSeed && paramSeed.trim() ? paramSeed.trim() : `daily-${new Date().toLocaleDateString("en-CA")}`);
     return () => {
       engine.dispose();
       engineRef.current = null;
@@ -96,6 +143,21 @@ export default function HillsGame() {
     if (!hud || hud.phase !== "ended" || !hud.outcome) return;
     if (recordedOutcome.current === hud.outcome) return;
     recordedOutcome.current = hud.outcome;
+    setProgress((prev) => {
+      const next: Progress = {
+        banked: prev.banked + (hud.outcome!.kind === "escaped" ? hud.outcome!.value : 0),
+        escapes: prev.escapes + (hud.outcome!.kind === "escaped" ? 1 : 0),
+        runs: prev.runs + 1,
+        best: Math.max(prev.best, hud.outcome!.value),
+        traces: [...new Set([...prev.traces, ...hud.outcome!.tracesFound])],
+      };
+      try {
+        localStorage.setItem(PROGRESS_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
     setBest((prev) => {
       const next: Best = {
         best: Math.max(prev.best, hud.outcome!.value),
@@ -111,6 +173,49 @@ export default function HillsGame() {
     });
   }, [hud]);
 
+  /* traces found mid-run join the lifetime journal at once */
+  useEffect(() => {
+    if (!hud || hud.tracesFound.length === 0) return;
+    setProgress((prev) => {
+      const merged = [...new Set([...prev.traces, ...hud.tracesFound])];
+      if (merged.length === prev.traces.length) return prev;
+      const next = { ...prev, traces: merged };
+      try {
+        localStorage.setItem(PROGRESS_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, [hud]);
+
+  const xp = xpForProgress(progress.banked, progress.escapes, progress.traces.length);
+  const level = levelForXp(xp);
+  const chosenPerk = perkById(settings.perkId);
+  const effectivePerk: PerkId | null = chosenPerk && level >= chosenPerk.level ? chosenPerk.id : null;
+
+  /* push run setup into the engine whenever it changes on the title */
+  useEffect(() => {
+    if (!mounted) return;
+    engineRef.current?.configureRun({
+      seed,
+      difficulty: settings.difficulty,
+      perkId: effectivePerk,
+      reducedHallucinations: settings.reducedHallucinations,
+      soundIndicator: settings.soundIndicator,
+      knownTraceIds: progress.traces,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, seed, settings.difficulty, effectivePerk, settings.reducedHallucinations, settings.soundIndicator, progress.traces.join(",")]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      /* ignore */
+    }
+  }, [settings]);
+
   const markGuideSeen = useCallback(() => {
     try {
       localStorage.setItem(GUIDE_KEY, "1");
@@ -123,47 +228,66 @@ export default function HillsGame() {
   const closeGuide = useCallback(() => {
     markGuideSeen();
     setGuideOpen(false);
+    setPaused(false);
     engineRef.current?.setPaused(false);
   }, [markGuideSeen]);
 
   const openGuide = useCallback(() => {
     setGuideStep(0);
     setGuideOpen(true);
+    setPaused(true);
     engineRef.current?.setPaused(true);
   }, []);
 
   const startFromGuide = useCallback(() => {
     markGuideSeen();
     setGuideOpen(false);
+    setPaused(false);
     engineRef.current?.setPaused(false);
     engineRef.current?.startRun();
   }, [markGuideSeen]);
 
   const startRun = useCallback(() => {
+    setPaused(false);
+    engineRef.current?.setPaused(false);
     engineRef.current?.startRun();
   }, []);
 
-  /* keyboard: C = cinema, Esc = close guide / exit cinema, Space = drop */
+  const togglePause = useCallback(() => {
+    setPaused((prev) => {
+      const next = !prev;
+      engineRef.current?.setPaused(next);
+      return next;
+    });
+  }, []);
+
+  /* keyboard: C cinema · Esc closes the guide first, then exits cinema,
+     then pauses · P pauses · Space drops · R restarts from an end screen */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "KeyC") {
         setCinema((c) => !c);
       } else if (e.code === "Escape") {
         if (guideOpen) closeGuide();
-        else setCinema(false);
-      } else if (e.code === "Space" && hud?.phase === "playing" && !guideOpen) {
+        else if (cinema) setCinema(false);
+        else if (hud?.phase === "playing") togglePause();
+      } else if (e.code === "KeyP" && hud?.phase === "playing" && !guideOpen) {
+        togglePause();
+      } else if (e.code === "Space" && hud?.phase === "playing" && !guideOpen && !paused) {
         e.preventDefault();
         engineRef.current?.dropHeaviest();
+      } else if (e.code === "KeyR" && hud?.phase === "ended") {
+        startRun();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeGuide, guideOpen, hud?.phase]);
+  }, [closeGuide, guideOpen, hud?.phase, cinema, paused, togglePause, startRun]);
 
   const phase = hud?.phase ?? "idle";
   const heaviest = hud?.carried.find((i) => i.name === hud.heaviestName) ?? null;
   const statusFresh = hud && performance.now() - hud.statusAt < 4500 ? hud.statusLine : "";
-  const progress = hud ? 1 - hud.timeLeft / hud.totalTime : 0;
+  const timeProgress = hud ? 1 - hud.timeLeft / hud.totalTime : 0;
 
   return (
     <div className="relative h-[100dvh] w-full select-none overflow-hidden bg-[#0b100b] text-[#f3ead6]">
@@ -184,18 +308,31 @@ export default function HillsGame() {
               </div>
               <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/60">to nightfall</div>
               <div className="mt-2 h-1 w-44 overflow-hidden rounded bg-white/15">
-                <div className="h-full" style={{ width: `${progress * 100}%`, background: "linear-gradient(90deg,#f0c060,#e2703a)" }} />
+                <div className="h-full" style={{ width: `${timeProgress * 100}%`, background: "linear-gradient(90deg,#f0c060,#e2703a)" }} />
               </div>
               {hud.fogThick && (
                 <div className="mt-2 rounded-full border border-white/20 bg-black/45 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/80">
                   Fog is thick — it slows you, and it lies
                 </div>
               )}
+              <div className="mt-2 rounded-full border border-white/15 bg-black/40 px-3 py-0.5 text-[10px] font-semibold uppercase tracking-[0.22em]" style={{ color: MOON }}>
+                {hud.zoneLine}
+              </div>
+              {hud.routeEventLine && (
+                <div className="mt-2 max-w-xs rounded-full border border-[#f0c060]/40 bg-black/45 px-3 py-0.5 text-center text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: GOLD }}>
+                  Trailwise: {hud.routeEventLine}
+                </div>
+              )}
+              {paused && (
+                <div className="mt-3 rounded-full border border-white/30 bg-black/70 px-4 py-1 font-display text-sm tracking-[0.3em] text-white">
+                  PAUSED — ESC OR P TO RESUME
+                </div>
+              )}
             </div>
 
             {/* the caption: what your ears would tell you */}
             {hud.caption && (
-              <div className="pointer-events-none absolute left-1/2 top-[8.7rem] flex w-full max-w-md -translate-x-1/2 items-center justify-center gap-2 px-4 sm:top-40">
+              <div className="pointer-events-none absolute left-1/2 top-[12.6rem] flex w-full max-w-md -translate-x-1/2 items-center justify-center gap-2 px-4 sm:top-[11.6rem]">
                 <span
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/25 bg-black/50 text-sm"
                   style={{ color: "#e88a75", transform: `rotate(${hud.captionBearingDeg ?? 0}deg)` }}
@@ -208,8 +345,33 @@ export default function HillsGame() {
                 </span>
               </div>
             )}
+            {settings.soundIndicator && hud.soundLevel > 0.04 && hud.soundBearingDeg !== null && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-1"
+                style={{
+                  [hud.soundBearingDeg >= 0 ? "right" : "left"]: 6,
+                  opacity: 0.25 + hud.soundLevel * 0.75,
+                } as CSSProperties}
+              >
+                <span
+                  className="font-display text-2xl"
+                  style={{ color: hud.monsterState === "chasing" ? "#e2703a" : "#e88a75", transform: `scale(${0.8 + hud.soundLevel * 0.7})` }}
+                >
+                  {hud.soundBearingDeg >= 0 ? "▶" : "◀"}
+                </span>
+                <span className="text-[9px] font-bold uppercase tracking-[0.25em] text-white/70">sound</span>
+              </div>
+            )}
+            {hud.latestTrace && performance.now() - hud.latestTrace.at < 6000 && (
+              <div className="pointer-events-none absolute left-1/2 top-[18.3rem] w-full max-w-md -translate-x-1/2 px-4 text-center sm:top-[17.3rem]">
+                <span className="rounded-lg border px-3 py-2 font-serif text-sm italic" style={{ borderColor: "rgba(240,192,96,0.5)", background: "rgba(20,16,6,0.78)", color: GOLD }}>
+                  Trace — {hud.latestTrace.title}: {hud.latestTrace.short}
+                </span>
+              </div>
+            )}
             {statusFresh && (
-              <div className="pointer-events-none absolute left-1/2 top-[11.5rem] w-full max-w-md -translate-x-1/2 px-4 text-center sm:top-[12.5rem]">
+              <div className="pointer-events-none absolute left-1/2 top-[16.1rem] w-full max-w-md -translate-x-1/2 px-4 text-center sm:top-[14.9rem]">
                 <span className="rounded bg-black/55 px-3 py-1 text-xs font-semibold tracking-wide" style={{ color: MOON }}>
                   {statusFresh}
                 </span>
@@ -235,8 +397,15 @@ export default function HillsGame() {
 
         {/* pack: desktop panel */}
         {phase === "playing" && hud && (
-          <aside className="absolute right-3 top-28 hidden w-72 rounded-xl border border-white/12 bg-black/55 p-4 backdrop-blur-sm sm:block">
-            <PackList hud={hud} />
+          <aside className="absolute right-3 top-28 hidden max-h-[calc(100dvh-9rem)] w-80 overflow-y-auto rounded-xl border border-white/12 bg-black/55 p-4 backdrop-blur-sm sm:block">
+            <PackList
+              hud={hud}
+              onDropItem={(uid) => engineRef.current?.dropItem(uid)}
+              onWrap={(uid) => engineRef.current?.wrapItem(uid)}
+              onPlayFiddle={() => engineRef.current?.playFiddle()}
+              onToggleLantern={() => engineRef.current?.toggleLantern()}
+              onClearTree={() => engineRef.current?.clearFallenTree()}
+            />
             <DropButton hud={hud} heaviest={heaviest} onDrop={() => engineRef.current?.dropHeaviest()} />
           </aside>
         )}
@@ -280,7 +449,14 @@ export default function HillsGame() {
                     ✕
                   </button>
                 </div>
-                <PackList hud={hud} />
+                <PackList
+                  hud={hud}
+                  onDropItem={(uid) => engineRef.current?.dropItem(uid)}
+                  onWrap={(uid) => engineRef.current?.wrapItem(uid)}
+                  onPlayFiddle={() => engineRef.current?.playFiddle()}
+                  onToggleLantern={() => engineRef.current?.toggleLantern()}
+                  onClearTree={() => engineRef.current?.clearFallenTree()}
+                />
                 <DropButton hud={hud} heaviest={heaviest} onDrop={() => engineRef.current?.dropHeaviest()} />
               </div>
             )}
@@ -291,8 +467,8 @@ export default function HillsGame() {
 
       {/* ── title screen ─────────────────────────────────── */}
       {mounted && phase === "idle" && !guideOpen && (
-        <div className="absolute inset-0 flex flex-col items-center justify-end bg-gradient-to-t from-black/70 via-transparent to-black/30 pb-14 sm:justify-center sm:pb-0">
-          <div className="px-6 text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-end overflow-y-auto bg-gradient-to-t from-black/70 via-transparent to-black/30 pb-8 pt-16 sm:justify-center sm:pb-0">
+          <div className="px-4 text-center sm:px-6">
             <div className="mb-2 font-display text-xs tracking-[0.4em]" style={{ color: MOON }}>
               AN APPALACHIAN ESCAPE
             </div>
@@ -323,6 +499,122 @@ export default function HillsGame() {
                 </span>
               )}
               {!guideSeen && <span className="text-white/45">(the guide opens first time)</span>}
+            </div>
+
+            {/* ── run setup: seed, difficulty, one perk, comfort, traces ── */}
+            <div className="mx-auto mt-6 max-h-[46dvh] w-[min(94vw,44rem)] overflow-y-auto rounded-2xl border border-white/15 bg-[#0d120d]/92 p-4 text-left shadow-2xl backdrop-blur-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-display text-xs tracking-[0.3em]" style={{ color: MOON }}>RUN SETUP</span>
+                <span className="text-xs text-white/65">Seed <strong className="text-white">{seed}</strong> — same seed, same loot layout, route event and tempers</span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {DIFFICULTIES.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setSettings((prev) => ({ ...prev, difficulty: d.id }))}
+                    className="min-h-[48px] rounded-lg border px-2 py-2 text-left"
+                    style={{
+                      borderColor: settings.difficulty === d.id ? MOON : "rgba(255,255,255,0.18)",
+                      background: settings.difficulty === d.id ? "rgba(127,231,210,0.14)" : "rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <span className="block font-display text-sm tracking-wider">{d.name.toUpperCase()}</span>
+                    <span className="block text-[11px] leading-snug text-white/60">{d.effect}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-baseline justify-between gap-2 border-t border-white/10 pt-3">
+                <span className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD }}>PERKS — LEVEL {level} · {xp} XP</span>
+                <span className="text-[11px] text-white/55">XP = banked escape value + 100 per escape + 25 per Trace found. Pick one active perk.</span>
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setSettings((prev) => ({ ...prev, perkId: null }))}
+                  className="min-h-[48px] rounded-lg border px-3 py-2 text-left"
+                  style={{ borderColor: settings.perkId === null ? MOON : "rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.04)" }}
+                >
+                  <span className="block text-sm font-semibold">No perk</span>
+                  <span className="block text-[11px] text-white/60">Walk the hills as you are.</span>
+                </button>
+                {PERKS.map((perk) => {
+                  const unlocked = level >= perk.level;
+                  const selected = effectivePerk === perk.id;
+                  return (
+                    <button
+                      key={perk.id}
+                      type="button"
+                      disabled={!unlocked}
+                      onClick={() => setSettings((prev) => ({ ...prev, perkId: perk.id }))}
+                      className="min-h-[48px] rounded-lg border px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-45"
+                      style={{
+                        borderColor: selected ? GOLD : "rgba(255,255,255,0.18)",
+                        background: selected ? "rgba(240,192,96,0.13)" : "rgba(255,255,255,0.04)",
+                      }}
+                    >
+                      <span className="block text-sm font-semibold">
+                        {perk.name} <span className="text-[11px] font-normal text-white/50">· Level {perk.level}{unlocked ? "" : " — locked"}</span>
+                      </span>
+                      <span className="block text-[11px] leading-snug text-white/60">{perk.effect}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 grid gap-2 border-t border-white/10 pt-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setSettings((prev) => ({ ...prev, soundIndicator: !prev.soundIndicator }))}
+                  className="min-h-[48px] rounded-lg border border-white/18 px-3 py-2 text-left"
+                  aria-pressed={settings.soundIndicator}
+                >
+                  <span className="block text-sm font-semibold">Visual sound indicator: {settings.soundIndicator ? "ON" : "OFF"}</span>
+                  <span className="block text-[11px] text-white/60">An edge arrow swells with the loudest growl. Captions stay either way.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettings((prev) => ({ ...prev, reducedHallucinations: !prev.reducedHallucinations }))}
+                  className="min-h-[48px] rounded-lg border border-white/18 px-3 py-2 text-left"
+                  aria-pressed={settings.reducedHallucinations}
+                >
+                  <span className="block text-sm font-semibold">Reduced hallucinations: {settings.reducedHallucinations ? "ON" : "OFF"}</span>
+                  <span className="block text-[11px] text-white/60">Phantoms and false growls come much less often in thick fog.</span>
+                </button>
+              </div>
+
+              <div className="mt-3 border-t border-white/10 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setJournalOpen((o) => !o)}
+                  className="flex min-h-[48px] w-full items-center justify-between rounded-lg border border-white/18 px-3 py-2 text-left"
+                  aria-expanded={journalOpen}
+                >
+                  <span className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD }}>TRACES — WHAT THE HILLS REMEMBER</span>
+                  <span className="text-xs text-white/65">{progress.traces.length} of {TRACES.length} found {journalOpen ? "▲" : "▼"}</span>
+                </button>
+                {journalOpen && (
+                  <div className="mt-2 space-y-3">
+                    {TRACES.map((t) => {
+                      const found = progress.traces.includes(t.id);
+                      return (
+                        <article key={t.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                          <h3 className="font-serif text-base font-bold" style={{ color: found ? CREAM : "rgba(255,255,255,0.4)" }}>
+                            {found ? t.title : "An unfound trace"}
+                          </h3>
+                          {found ? (
+                            <p className="mt-1 text-sm leading-relaxed text-[#e8dcc3]">{t.text}</p>
+                          ) : (
+                            <p className="mt-1 text-sm italic text-white/40">Somewhere in the holler. Walk over it to learn who it belonged to.</p>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -392,14 +684,30 @@ export default function HillsGame() {
 
       {/* ── end screen ───────────────────────────────────── */}
       {phase === "ended" && hud?.outcome && (
-        <EndScreen hud={hud} best={best} onAgain={startRun} onTitle={() => engineRef.current?.backToTitle()} />
+        <EndScreen hud={hud} best={best} totalTraces={progress.traces.length} onAgain={startRun} onTitle={() => engineRef.current?.backToTitle()} />
       )}
     </div>
   );
 }
 
 /* ── pack panel contents ─────────────────────────────────────────── */
-function PackList({ hud }: { hud: HudSnapshot }) {
+function PackList({
+  hud,
+  onDropItem,
+  onWrap,
+  onPlayFiddle,
+  onToggleLantern,
+  onClearTree,
+}: {
+  hud: HudSnapshot;
+  onDropItem: (uid: number) => void;
+  onWrap: (uid: number) => void;
+  onPlayFiddle: () => void;
+  onToggleLantern: () => void;
+  onClearTree: () => void;
+}) {
+  const quiltCarried = hud.carried.some((i) => i.id === "quilt");
+  const actionBtn = "min-h-[48px] rounded-lg border px-3 py-2 text-left text-xs leading-snug disabled:cursor-not-allowed disabled:opacity-40";
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
@@ -409,13 +717,47 @@ function PackList({ hud }: { hud: HudSnapshot }) {
         </span>
       </div>
       {hud.carried.length === 0 && <p className="text-sm italic text-white/55">Empty. You travel light and quiet now.</p>}
-      <ul className="space-y-1.5">
+      <ul className="space-y-2">
         {hud.carried.map((i) => (
-          <li key={i.uid} className="flex items-baseline justify-between gap-3 text-sm">
-            <span className="text-[#efe6cf]">{i.name}</span>
-            <span className="shrink-0 text-xs text-white/60">
-              ${i.value} · {i.weightKg} kg
-            </span>
+          <li key={i.uid} className="rounded-lg border border-white/10 bg-white/[0.04] p-2.5">
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-[#efe6cf]">
+                {i.name}
+                {i.wrapped && <span className="ml-2 rounded-full border border-[#f0c060]/50 px-2 py-0.5 text-[10px] font-bold tracking-wider" style={{ color: GOLD }}>WRAPPED — HALF NOISE</span>}
+              </span>
+              <span className="shrink-0 text-xs text-white/60">
+                ${i.value} · {i.weightKg} kg
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-white/55">{i.quirk}</p>
+            <p className="mt-0.5 text-[11px] italic text-white/40">Gathered from the {i.origin} — this run’s seeded layout.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {i.id === "coins" && (
+                <button type="button" onClick={() => onDropItem(i.uid)} className={actionBtn} style={{ borderColor: MOON, color: MOON }}>
+                  DROP THE JAR — if you are chased, the coins burst as a decoy where they land
+                </button>
+              )}
+              {i.id === "fiddle" && (
+                <button type="button" onClick={onPlayFiddle} className={actionBtn} style={{ borderColor: MOON, color: MOON }}>
+                  PLAY THE FIDDLE HERE — leave it sounding for 8 seconds to draw them off
+                </button>
+              )}
+              {i.id === "lantern" && (
+                <button type="button" onClick={onToggleLantern} className={actionBtn} style={{ borderColor: GOLD, color: GOLD }}>
+                  {hud.lanternLit ? "SNUFF THE LANTERN — darker, but their sight shortens again" : "CARRY THE LANTERN LIT — fog tricks stop, but their sight reaches farther"}
+                </button>
+              )}
+              {i.id === "tools" && hud.fallenTreeActive && (
+                <button type="button" onClick={onClearTree} disabled={!hud.nearFallenTree} className={actionBtn} style={{ borderColor: MOON, color: MOON }}>
+                  {hud.nearFallenTree ? "CLEAR THE FALLEN TREE — open the ridge shortcut with the iron tools" : "CLEAR THE FALLEN TREE — get to the tree on the ridge shortcut first"}
+                </button>
+              )}
+              {quiltCarried && i.id !== "quilt" && (
+                <button type="button" onClick={() => onWrap(i.uid)} className={actionBtn} style={{ borderColor: "rgba(240,192,96,0.6)", color: GOLD }}>
+                  {i.wrapped ? `UNWRAP THE ${i.name.toUpperCase()} — it makes its full noise again` : `WRAP THE ${i.name.toUpperCase()} IN THE QUILT — halve the noise it makes`}
+                </button>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -514,7 +856,7 @@ function Joystick({ onMove }: { onMove: (x: number, y: number) => void }) {
 }
 
 /* ── end screen ──────────────────────────────────────────────────── */
-function EndScreen({ hud, best, onAgain, onTitle }: { hud: HudSnapshot; best: Best; onAgain: () => void; onTitle: () => void }) {
+function EndScreen({ hud, best, totalTraces, onAgain, onTitle }: { hud: HudSnapshot; best: Best; totalTraces: number; onAgain: () => void; onTitle: () => void }) {
   const o = hud.outcome!;
   const droppedOnly = o.leftBehind.filter((l) => !o.carried.some((c) => c.name === l.name));
   const mins = Math.floor(o.secondsUsed / 60);
@@ -589,8 +931,45 @@ function EndScreen({ hud, best, onAgain, onTitle }: { hud: HudSnapshot; best: Be
           )}
         </div>
 
+        {o.kind === "escaped" && o.exitUsed && (
+          <p className="mt-4 text-sm" style={{ color: MOON }}>
+            Out by the {o.exitUsed}.
+          </p>
+        )}
+        {o.kind === "caught" && o.gaveAway && (
+          <div className="mt-5 rounded-lg border border-[#e2703a]/40 bg-[#e2703a]/10 p-3">
+            <div className="font-display text-xs tracking-[0.3em] text-[#ffb98a]">WHAT GAVE YOU AWAY</div>
+            <p className="mt-1 text-sm leading-relaxed text-[#f3e2d2]">{o.gaveAway}</p>
+          </div>
+        )}
+        {o.kind !== "caught" && (
+          <div className="mt-5 rounded-lg border border-white/12 bg-white/[0.04] p-3">
+            <div className="font-display text-xs tracking-[0.3em] text-white/60">YOUR LOUDEST MOMENT</div>
+            <p className="mt-1 text-sm leading-relaxed text-[#e8dcc3]">{o.loudestMoment}</p>
+          </div>
+        )}
+        <div className="mt-5">
+          <div className="mb-1 font-display text-xs tracking-[0.3em]" style={{ color: GOLD }}>
+            WHAT THE HILLS REMEMBER — {totalTraces} OF {TRACES.length}
+          </div>
+          {o.tracesFound.length === 0 ? (
+            <p className="text-sm italic text-white/55">No new traces this run. Their stories are still out there.</p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {o.tracesFound.map((id) => {
+                const t = TRACES.find((x) => x.id === id);
+                return t ? (
+                  <li key={id}>
+                    <span className="text-[#efe6cf]">{t.title}</span> <span className="text-white/50">— {t.short}</span>
+                  </li>
+                ) : null;
+              })}
+            </ul>
+          )}
+        </div>
+
         <div className="mt-5 border-t border-white/10 pt-3 text-xs text-white/55">
-          Best haul ${best.best} · {best.escapes} escape{best.escapes === 1 ? "" : "s"} in {best.runs} run{best.runs === 1 ? "" : "s"} (this device)
+          Best haul ${best.best} · {best.escapes} escape{best.escapes === 1 ? "" : "s"} in {best.runs} run{best.runs === 1 ? "" : "s"} (this device) · Press R to run again
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">

@@ -146,18 +146,27 @@ export class HillsAudio {
     return idx;
   }
 
-  /** Per-frame: place a voice in the world. level 0..1, pan -1..1. */
-  setVoice(idx: number, level: number, pan: number, chase: boolean) {
+  /** Per-frame: place a voice in the world. The four monster states have
+      four audible shapes: unaware is low and slow; curious lifts and
+      quickens; hunting is purposeful; chasing is high, fast and ragged. */
+  setVoice(idx: number, level: number, pan: number, state: "unaware" | "curious" | "hunting" | "chasing" | boolean) {
     const v = this.voices[idx];
     if (!v || !this.ctx) return;
+    const s = state === true ? "chasing" : state === false ? "unaware" : state;
     const t = this.ctx.currentTime;
     const target = Math.max(0, Math.min(1, level)) * 0.5;
     v.gain.gain.setTargetAtTime(target, t, 0.09);
     v.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)), t, 0.06);
-    const lfoRate = chase ? 2.4 : 0.8 + idx * 0.17;
-    v.lfo.frequency.setTargetAtTime(lfoRate, t, 0.4);
-    v.filter.frequency.setTargetAtTime(chase ? 460 : 300, t, 0.4);
-    v.growlOsc.frequency.setTargetAtTime((chase ? 66 : 52) + idx * 7, t, 0.4);
+    const shape = {
+      unaware: { lfo: 0.55, filter: 235, growl: 46, noise: 0.07 },
+      curious: { lfo: 0.95, filter: 325, growl: 52, noise: 0.11 },
+      hunting: { lfo: 1.6, filter: 415, growl: 59, noise: 0.16 },
+      chasing: { lfo: 2.6, filter: 505, growl: 68, noise: 0.22 },
+    }[s];
+    v.lfo.frequency.setTargetAtTime(shape.lfo, t, 0.4);
+    v.filter.frequency.setTargetAtTime(shape.filter, t, 0.4);
+    v.growlOsc.frequency.setTargetAtTime(shape.growl + idx * 7, t, 0.4);
+    v.noiseGain.gain.setTargetAtTime(shape.noise, t, 0.4);
   }
 
   silenceVoices() {
@@ -190,6 +199,52 @@ export class HillsAudio {
     osc.connect(shaper).connect(filter).connect(g).connect(p).connect(this.master);
     osc.start(t);
     osc.stop(t + 1.45);
+  }
+
+  /** A burst of old coins — bright metallic strikes that carry. */
+  coinClang() {
+    if (!this.ctx || !this.master) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    [2093, 2637, 3136, 1760].forEach((f, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = f * (0.94 + Math.random() * 0.1);
+      const g = ctx.createGain();
+      const at = t + i * 0.055;
+      g.gain.setValueAtTime(0.16, at);
+      g.gain.exponentialRampToValueAtTime(0.001, at + 0.55);
+      osc.connect(g).connect(this.master!);
+      osc.start(at);
+      osc.stop(at + 0.6);
+    });
+  }
+
+  /** A lonesome fiddle phrase, repeated while the lure sounds. */
+  fiddleLure() {
+    if (!this.ctx || !this.master) return;
+    const ctx = this.ctx;
+    const start = ctx.currentTime;
+    const phrase = [440, 523.25, 659.25, 523.25, 392, 440];
+    for (let rep = 0; rep < 3; rep++) {
+      phrase.forEach((f, i) => {
+        const at = start + rep * 2.6 + i * 0.38;
+        if (at > start + 8) return;
+        const osc = ctx.createOscillator();
+        osc.type = "sawtooth";
+        osc.frequency.value = f;
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 1500;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, at);
+        g.gain.linearRampToValueAtTime(0.055, at + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, at + 0.36);
+        osc.connect(filter).connect(g).connect(this.master!);
+        osc.start(at);
+        osc.stop(at + 0.4);
+      });
+    }
   }
 
   /** Short wooden thunk for dropping loot. */

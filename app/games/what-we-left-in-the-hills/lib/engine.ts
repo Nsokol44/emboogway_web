@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import { HillsAudio } from "./audio";
 import { TOTAL_WEIGHT, freshHaul, heaviestOf, type CarriedItem } from "./loot";
+import type { DifficultyId, PerkId } from "./progression";
 
 export const RUN_SECONDS = 420; // seven minutes to nightfall
 
@@ -49,17 +50,46 @@ export function pathX(z: number) {
 export function creekX(z: number) {
   return -13 + 4 * Math.sin(z * 0.021 + 0.6);
 }
+export const TUNNEL_X = 34;
+export function railX(z: number) {
+  return TUNNEL_X + 2 * Math.sin(z * 0.03 + 0.4);
+}
+export function shortcutX(z: number) {
+  return -31 + 2 * Math.sin(z * 0.035);
+}
+function hashSeed(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
 export function terrainHeight(x: number, z: number): number {
   let h = 0.85 * Math.sin(z * 0.045 + 1.7) * Math.cos(x * 0.06) + 0.55 * smoothNoise(x * 0.6, z * 0.6) * 0.4;
   const ax = Math.abs(x);
   const t = sstep(22, 52, ax);
   h += t * t * 30 + sstep(48, 95, ax) * 34;
-  // north wall across the exit end, with the county-road gap cut through it
-  const gap = sstep(3.5, 9.5, Math.abs(x - pathX(104)));
+  // north wall across the exit end, with county-road and rail-tunnel gaps
+  const gap = sstep(3.5, 9.5, Math.min(Math.abs(x - pathX(104)), Math.abs(x - railX(104))));
   h += sstep(94, 109, z) * 27 * gap;
   // south wall behind the start
   h += sstep(-95, -110, z) * 24;
   h += sstep(112, 130, z) * 10;
+  // Two authored route benches cut through the ridges: the rail bed on the
+  // east side (long, quiet, exposed) and the fallen-tree shortcut west.
+  if (z > 24) {
+    const d = Math.abs(x - railX(z));
+    const blend = 1 - sstep(2.5, 8.5, d);
+    const target = 1.0 + sstep(24, 104, z) * 2.4;
+    h = lerp(h, target, blend * 0.94);
+  }
+  if (z > 6 && z < 70) {
+    const d = Math.abs(x - shortcutX(z));
+    const blend = (1 - sstep(2.5, 8.5, d)) * sstep(6, 14, z) * (1 - sstep(62, 70, z));
+    const target = 1.0 + sstep(6, 70, z) * 1.1;
+    h = lerp(h, target, blend * 0.92);
+  }
   return h;
 }
 function terrainSlope(x: number, z: number): number {
@@ -69,9 +99,93 @@ function terrainSlope(x: number, z: number): number {
   return Math.hypot(dx, dz) / (2 * e);
 }
 
+/* ── Traces: the dead left these behind ─────────────────────────────── */
+export interface TraceDef {
+  id: string;
+  title: string;
+  short: string;
+  text: string;
+  x: number;
+  z: number;
+}
+export const TRACES: TraceDef[] = [
+  {
+    id: "surveyor", title: "The Surveyor’s Line", x: -24, z: -8,
+    short: "A brass-capped stone, still holding a line nobody finished.",
+    text: "In 1785 Elias Wren chained a boundary west from the settlements, blazing trees as he went. The line stops in this holler, though every blaze after it is fresher than the one before. On foggy mornings, walkers say the measuring never quite stopped — it only learned to walk slower.",
+  },
+  {
+    id: "deserter", title: "The Deserter’s Camp", x: -10.5, z: -35,
+    short: "A cold fire ring under the creek bank, hidden from both armies.",
+    text: "Nathaniel Rook left his regiment in the winter of 1863 and hid where the creek bends, afraid of the road home and the road west in equal measure. He carved NO ARMY OWNS THIS GROUND into a sycamore. The carving is at knee height now. The thing that passes here walks much taller.",
+  },
+  {
+    id: "wintering", title: "The Wintering", x: -2.5, z: -73,
+    short: "A child’s shoe in the homestead ashes, too small for the grave outside.",
+    text: "Miriam Hale’s wagon broke in the first snow of 1849, too late to turn back and too early to cross. Her family wintered in this house on meal, bark tea, and hope measured in spoonfuls. The county record says the road took them in spring. It does not say what came down from the ridge wearing their patience.",
+  },
+  {
+    id: "mother", title: "The Mother’s Road", x: 34, z: 14,
+    short: "Two sets of stones mark rests along the ridge — one large, one small.",
+    text: "Sarah Linn carried her daughter over this ridge in 1817 after fever took their horse, resting wherever the stones are still piled. She made the far side alone, neighbours insisted, though her footprints home were doubled all the way. Some loads, the mountains decide to carry for you. Some they decide to keep.",
+  },
+  {
+    id: "teamster", title: "The Teamster’s Bell", x: -29.1, z: 38,
+    short: "A mule bell, green with age, tangled in the fallen tree’s roots.",
+    text: "Henry Saylor’s team bellied down in the mud here in 1832 and would not rise. He cut the traces, rang the lead mule’s bell three times for help, and waited with his back to this tree. Teamsters still swear a bell answers on still nights — always three rings, always a little too far uphill.",
+  },
+  {
+    id: "ginseng", title: "The Ginseng Hunter", x: -14.1, z: 58,
+    short: "A digging stick worn smooth, beside roots older than the man who sought them.",
+    text: "Amos Keene knew every ’sang patch between the creeks and never took the mother root — his rule, and the reason the patches lived. In 1901 he broke it for a root shaped, the buyers said, almost like a man. The buyers got their root. The patch got Amos, in the slow way patches keep things.",
+  },
+  {
+    id: "lantern-man", title: "The Lantern-Man", x: 33.8, z: 94,
+    short: "A red globe, uncracked, set carefully on the tunnel stones.",
+    text: "Thomas Brier walked the rail cut with a red lantern, checking for washouts before the night freight. In the flood year he signalled a train down in time and was himself taken by the water under the ridge. Conductors still report a red light at this tunnel — and slow, though no rule tells them to.",
+  },
+  {
+    id: "preacher", title: "The Preacher’s Shrine", x: 9.2, z: 92,
+    short: "River stones in a rough circle where the road bends toward daylight.",
+    text: "Obadiah Cross preached to westbound families at this bend, warning that the mountains taxed every soul exactly what it refused to set down. He followed one wagon train as far as this shrine and no farther, by his own journal. The last entry is not in his hand: THE TOLL IS THE TRAVELLER.",
+  },
+];
+
 /* ── shared types with the React shell ──────────────────────────────── */
 export type Phase = "idle" | "playing" | "ended";
 export type OutcomeKind = "escaped" | "caught" | "nightfall";
+export type MonsterState = "unaware" | "curious" | "hunting" | "chasing";
+export type ZoneId = "hollow" | "ridge" | "creek" | "homestead" | "rail";
+export type RouteEventId = "fallen-tree" | "flooded-creek" | "washed-road";
+export type DetectionCause = "noise" | "sight" | "fog churn" | "coin burst" | "fiddle";
+export interface RunConfig {
+  seed: string;
+  difficulty: DifficultyId;
+  perkId: PerkId | null;
+  reducedHallucinations: boolean;
+  soundIndicator: boolean;
+  knownTraceIds: string[];
+}
+export const DEFAULT_RUN_CONFIG: RunConfig = {
+  seed: "standard-run",
+  difficulty: "standard",
+  perkId: null,
+  reducedHallucinations: false,
+  soundIndicator: true,
+  knownTraceIds: [],
+};
+export const ROUTE_EVENT_LINES: Record<RouteEventId, string> = {
+  "fallen-tree": "A fallen tree blocks the ridge shortcut.",
+  "flooded-creek": "The creek is high — splashing will carry.",
+  "washed-road": "The road is washed out — the path is slow going.",
+};
+export const ZONE_LINES: Record<ZoneId, string> = {
+  hollow: "HOLLOW — the fog gathers thick here",
+  ridge: "RIDGE — clearer air, longer way round",
+  creek: "CREEK — quick ground, loud splashing",
+  homestead: "HOMESTEAD — somebody else’s shelter, somebody else’s story",
+  rail: "RAIL BED — quiet stone underfoot, long way round",
+};
 export interface LeftItem {
   name: string;
   value: number;
@@ -83,12 +197,19 @@ export interface Outcome {
   carried: LeftItem[];
   leftBehind: LeftItem[];
   secondsUsed: number;
+  exitUsed: string | null;
+  gaveAway: string | null;
+  loudestMoment: string;
+  peakNoise: number;
+  tracesFound: string[];
+  routeEvent: RouteEventId;
+  seed: string;
 }
 export interface HudSnapshot {
   phase: Phase;
   timeLeft: number;
   totalTime: number;
-  carried: { uid: number; name: string; value: number; weightKg: number }[];
+  carried: { uid: number; id: string; name: string; value: number; weightKg: number; quirk: string; wrapped: boolean; origin: string }[];
   carriedValue: number;
   carriedWeight: number;
   heaviestName: string | null;
@@ -102,6 +223,22 @@ export interface HudSnapshot {
   statusLine: string;
   statusAt: number;
   outcome: Outcome | null;
+  zone: ZoneId;
+  zoneLine: string;
+  seed: string;
+  difficulty: DifficultyId;
+  perkId: PerkId | null;
+  routeEvent: RouteEventId | null;
+  routeEventLine: string | null;
+  shortcutCleared: boolean;
+  fallenTreeActive: boolean;
+  nearFallenTree: boolean;
+  lanternLit: boolean;
+  tracesFound: string[];
+  latestTrace: { id: string; title: string; short: string; at: number } | null;
+  monsterState: MonsterState;
+  soundLevel: number;
+  soundBearingDeg: number | null;
 }
 
 interface Monster {
@@ -110,7 +247,12 @@ interface Monster {
   legR: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
-  state: "roam" | "investigate" | "chase";
+  state: MonsterState;
+  temperament: "patient" | "bold" | "deaf";
+  awareness: number;
+  searchTimer: number;
+  ignoreUntil: number;
+  lastDetectionCause: DetectionCause | null;
   waypoint: THREE.Vector3;
   heard: THREE.Vector3 | null;
   lastSeen: THREE.Vector3 | null;
@@ -130,6 +272,7 @@ interface Phantom {
 interface DroppedLoot {
   item: CarriedItem;
   mesh: THREE.Group;
+  lureUntil?: number;
   /** an item only becomes pickable again once you've stepped clear of it —
       otherwise the drop (1.6 out) sits inside the pickup radius and the
       pack silently re-swallows it on the next frame */
@@ -208,7 +351,31 @@ export class HillsEngine {
   private statusLine = "";
   private statusAt = 0;
   private hudTimer = 0;
-  private colliders: { x: number; z: number; r: number }[] = [];
+  private colliders: { x: number; z: number; r: number; id?: string }[] = [];
+  private runConfig: RunConfig = { ...DEFAULT_RUN_CONFIG };
+  private runDuration = RUN_SECONDS;
+  private routeEvent: RouteEventId = "washed-road";
+  private zone: ZoneId = "hollow";
+  private wrappedUids = new Set<number>();
+  private lanternLit = false;
+  private lanternLight: THREE.PointLight | null = null;
+  private shortcutCleared = false;
+  private fallenTreeGroup: THREE.Group | null = null;
+  private routeSignGroup: THREE.Group | null = null;
+  private traceMeshes = new Map<string, THREE.Group>();
+  private tracesFoundRun = new Set<string>();
+  private latestTrace: { id: string; title: string; short: string; at: number } | null = null;
+  private peakNoise = 0;
+  private loudestMoment = "You never made a sound worth remembering.";
+  private lastDetectionText: string | null = null;
+  private secondWindUsed = false;
+  private graceUntil = -1;
+  private fogWarnedCycle = -1;
+  private activeDecoy: { pos: THREE.Vector3; until: number; radius: number } | null = null;
+  private soundLevel = 0;
+  private soundBearing: number | null = null;
+  private nearestMonsterState: MonsterState = "unaware";
+  private lootLayout: Record<string, string> = {};
   private ring!: THREE.Mesh;
   private ringFill!: THREE.Mesh;
   private rng = mulberry32(20261027);
@@ -299,6 +466,8 @@ export class HillsEngine {
       if (dp < 2.6) c.lerp(dirt, (1 - dp / 2.6) * 0.85);
       const dc = Math.abs(x - creekX(z));
       if (dc < 1.6) c.lerp(wet, (1 - dc / 1.6) * 0.7);
+      if (z > 24 && Math.abs(x - railX(z)) < 2.3) c.lerp(new THREE.Color(0x3f3d38), 0.72);
+      if (z > 6 && z < 70 && Math.abs(x - shortcutX(z)) < 2.4) c.lerp(dirt, 0.45);
       colours[i * 3] = c.r;
       colours[i * 3 + 1] = c.g;
       colours[i * 3 + 2] = c.b;
@@ -343,6 +512,8 @@ export class HillsEngine {
     this.scatterNature();
     this.buildHomestead();
     this.buildExit();
+    this.buildRailTunnel();
+    this.buildTraces();
     this.buildPlayer();
     this.buildMonsters();
     this.buildPhantoms();
@@ -503,6 +674,95 @@ export class HillsEngine {
     return tex;
   }
 
+  private textTexture(title: string, sub: string): THREE.Texture {
+    const cv = document.createElement("canvas");
+    cv.width = 512;
+    cv.height = 256;
+    const ctx = cv.getContext("2d")!;
+    ctx.fillStyle = "#38291a";
+    ctx.fillRect(0, 0, 512, 256);
+    ctx.strokeStyle = "#c9b48a";
+    ctx.lineWidth = 10;
+    ctx.strokeRect(14, 14, 484, 228);
+    ctx.fillStyle = "#efe3c2";
+    ctx.textAlign = "center";
+    ctx.font = "bold 52px Georgia, serif";
+    ctx.fillText(title, 256, 104);
+    ctx.font = "bold 31px Georgia, serif";
+    const words = sub.split(" ");
+    let line = "";
+    let y = 158;
+    for (const w of words) {
+      if ((line + " " + w).trim().length > 24) {
+        ctx.fillText(line.trim(), 256, y);
+        y += 42;
+        line = w;
+      } else line += " " + w;
+    }
+    if (line.trim()) ctx.fillText(line.trim(), 256, y);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+
+  private buildRailTunnel() {
+    const grp = new THREE.Group();
+    const x = railX(103);
+    const z = 103;
+    const y = terrainHeight(x, z);
+    const dark = new THREE.MeshStandardMaterial({ color: 0x17181a, roughness: 1 });
+    const stone = new THREE.MeshStandardMaterial({ color: 0x555650, roughness: 1 });
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(7.6, 5.4, 1.2), dark);
+    mouth.position.set(0, 2.45, 0);
+    grp.add(mouth);
+    for (const sx of [-4.15, 4.15]) {
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(1.1, 5.8, 1.5), stone);
+      pier.position.set(sx, 2.7, 0.1);
+      pier.castShadow = true;
+      grp.add(pier);
+    }
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(9.4, 1.0, 1.5), stone);
+    lintel.position.set(0, 5.65, 0.1);
+    grp.add(lintel);
+    const board = new THREE.Mesh(
+      new THREE.BoxGeometry(3.4, 1.55, 0.12),
+      new THREE.MeshStandardMaterial({ map: this.textTexture("RAIL TUNNEL", "THE LONG WAY OUT"), roughness: 0.9 })
+    );
+    board.position.set(-6.4, 2.6, 0.4);
+    board.rotation.y = 0.35;
+    grp.add(board);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 3.2, 6), stone);
+    post.position.set(-6.4, 1.4, 0.4);
+    grp.add(post);
+    grp.position.set(x, y, z);
+    this.scene.add(grp);
+  }
+
+  private buildTraces() {
+    for (const t of TRACES) {
+      const grp = new THREE.Group();
+      const stone = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.8, 0.18),
+        new THREE.MeshStandardMaterial({ color: 0x8b887c, roughness: 1 })
+      );
+      stone.position.y = 0.4;
+      stone.castShadow = true;
+      grp.add(stone);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.72, 0.86, 28),
+        new THREE.MeshBasicMaterial({ color: 0xf0c060, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.06;
+      ring.name = "trace-ring";
+      grp.add(ring);
+      grp.position.set(t.x, terrainHeight(t.x, t.z), t.z);
+      grp.rotation.y = Math.atan2(pathX(t.z) - t.x, 0.001);
+      this.scene.add(grp);
+      this.traceMeshes.set(t.id, grp);
+    }
+  }
+
   private buildExit() {
     const gx = pathX(104);
     const gz = EXIT_Z + 3;
@@ -597,6 +857,10 @@ export class HillsEngine {
     g.add(packGroup);
     (g as unknown as { __packGroup: THREE.Group }).__packGroup = packGroup;
 
+    this.lanternLight = new THREE.PointLight(0xffa040, 0, 19, 1.7);
+    this.lanternLight.position.set(0.38, 1.35, 0.42);
+    g.add(this.lanternLight);
+
     this.scene.add(g);
   }
 
@@ -641,7 +905,12 @@ export class HillsEngine {
       this.scene.add(f.group);
       this.monsters.push({
         ...f,
-        state: "roam",
+        state: "unaware",
+        temperament: "patient",
+        awareness: 0,
+        searchTimer: 0,
+        ignoreUntil: -1,
+        lastDetectionCause: null,
         waypoint: new THREE.Vector3(x, 0, z),
         heard: null,
         lastSeen: null,
@@ -727,6 +996,15 @@ export class HillsEngine {
     this.hustleToggle = !this.hustleToggle;
   }
 
+  configureRun(config: Partial<RunConfig>) {
+    this.runConfig = { ...this.runConfig, ...config, knownTraceIds: config.knownTraceIds ?? this.runConfig.knownTraceIds };
+    if (this.phase === "idle") this.resetRun(false);
+  }
+
+  get config(): RunConfig {
+    return this.runConfig;
+  }
+
   startRun() {
     this.audio.ensure();
     for (const mon of this.monsters) {
@@ -743,19 +1021,121 @@ export class HillsEngine {
   dropHeaviest() {
     if (this.phase !== "playing") return;
     const h = heaviestOf(this.carried);
-    if (!h) return;
-    this.carried = this.carried.filter((i) => i.uid !== h.uid);
-    const mesh = this.makeLootMesh(h);
-    const dropPos = this.playerPos.clone();
+    if (h) this.dropItem(h.uid);
+  }
+
+  dropItem(uid: number) {
+    if (this.phase !== "playing") return;
+    const item = this.carried.find((i) => i.uid === uid);
+    if (!item) return;
+    const wasChased = this.monsters.some((m) => m.state === "chasing");
+    this.placeDroppedItem(item, this.playerPos);
+    if (item.id === "quilt") this.wrappedUids.clear();
+    this.wrappedUids.delete(uid);
+    if (item.id === "lantern") this.setLantern(false);
+    if (item.id === "coins" && wasChased) {
+      const pos = this.dropped[this.dropped.length - 1].mesh.position.clone();
+      this.activeDecoy = { pos, until: this.elapsed + 5, radius: 34 };
+      this.audio.coinClang();
+      this.recordDetection("coin burst", `The burst coins pulled their attention to ${Math.round(this.activeDecoy.radius)} metres around the drop.`);
+      this.setStatus("The coins burst — a bright, costly clang behind you.");
+    } else {
+      this.audio.thunk();
+      this.setStatus(`Dropped the ${item.name.toLowerCase()} — quieter now.`);
+    }
+    this.updatePackVisual();
+    this.emitHud();
+  }
+
+  private placeDroppedItem(item: CarriedItem, from: THREE.Vector3): DroppedLoot {
+    this.carried = this.carried.filter((i) => i.uid !== item.uid);
+    const mesh = this.makeLootMesh(item);
+    const dropPos = from.clone();
     dropPos.x += Math.sin(this.facing) * -1.6 + (this.rng() - 0.5) * 0.5;
     dropPos.z += Math.cos(this.facing) * -1.6 + (this.rng() - 0.5) * 0.5;
     mesh.position.set(dropPos.x, terrainHeight(dropPos.x, dropPos.z) + 0.3, dropPos.z);
     this.scene.add(mesh);
-    this.dropped.push({ item: h, mesh, armed: false });
-    this.audio.thunk();
-    this.setStatus(`Dropped the ${h.name.toLowerCase()} — quieter now.`);
+    const dropped = { item, mesh, armed: false } satisfies DroppedLoot;
+    this.dropped.push(dropped);
+    return dropped;
+  }
+
+  wrapItem(uid: number) {
+    if (this.phase !== "playing") return;
+    if (!this.carried.some((i) => i.id === "quilt")) {
+      this.setStatus("You need the patchwork quilt in your pack to wrap an item.");
+      return;
+    }
+    const item = this.carried.find((i) => i.uid === uid);
+    if (!item || item.id === "quilt") return;
+    if (this.wrappedUids.has(uid)) {
+      this.wrappedUids.delete(uid);
+      this.setStatus(`Unwrapped the ${item.name.toLowerCase()} — it makes its full noise again.`);
+    } else {
+      const max = this.runConfig.perkId === "steady-hands" ? 2 : 1;
+      if (this.wrappedUids.size >= max) {
+        const oldest = this.wrappedUids.values().next().value as number;
+        this.wrappedUids.delete(oldest);
+      }
+      this.wrappedUids.add(uid);
+      this.setStatus(`Wrapped the ${item.name.toLowerCase()} in the quilt — its noise is halved.`);
+    }
+    this.emitHud();
+  }
+
+  playFiddle() {
+    if (this.phase !== "playing") return;
+    const fiddle = this.carried.find((i) => i.id === "fiddle");
+    if (!fiddle) return;
+    const dropped = this.placeDroppedItem(fiddle, this.playerPos);
+    dropped.lureUntil = this.elapsed + 8;
+    dropped.armed = false;
+    this.audio.fiddleLure();
+    this.recordDetection("fiddle", "The fiddle sounded where you left it, drawing nearby hunters for 8 seconds.");
+    this.setStatus("The fiddle plays on behind you — nearby things go to the music.");
     this.updatePackVisual();
     this.emitHud();
+  }
+
+  toggleLantern() {
+    if (this.phase !== "playing") return;
+    if (!this.carried.some((i) => i.id === "lantern")) return;
+    this.setLantern(!this.lanternLit);
+    this.setStatus(this.lanternLit ? "Lantern lit — the fog’s tricks fade, but their sight reaches farther." : "Lantern snuffed — darker, and harder to see.");
+    this.emitHud();
+  }
+
+  private setLantern(on: boolean) {
+    this.lanternLit = on && this.carried.some((i) => i.id === "lantern");
+    if (this.lanternLight) this.lanternLight.intensity = this.lanternLit ? 26 : 0;
+    if (this.lanternLit) {
+      for (const p of this.phantoms) {
+        p.active = false;
+        p.group.visible = false;
+      }
+    }
+  }
+
+  clearFallenTree() {
+    if (this.phase !== "playing" || this.routeEvent !== "fallen-tree" || this.shortcutCleared) return;
+    if (!this.carried.some((i) => i.id === "tools")) {
+      this.setStatus("The iron tools could clear that tree — if you were carrying them.");
+      return;
+    }
+    if (!this.isNearFallenTree()) {
+      this.setStatus("Get to the fallen tree across the ridge shortcut to clear it.");
+      return;
+    }
+    this.shortcutCleared = true;
+    if (this.fallenTreeGroup) this.scene.remove(this.fallenTreeGroup);
+    this.fallenTreeGroup = null;
+    this.colliders = this.colliders.filter((c) => c.id !== "fallen-tree");
+    this.setStatus("You clear the fallen tree — the ridge shortcut is open.");
+    this.emitHud();
+  }
+
+  private isNearFallenTree(): boolean {
+    return this.routeEvent === "fallen-tree" && Math.hypot(this.playerPos.x - shortcutX(38), this.playerPos.z - 38) < 5.5;
   }
 
   /* debug hooks for probes/captures */
@@ -776,6 +1156,24 @@ export class HillsEngine {
       noise: +this.noiseRadius.toFixed(1),
       timeLeft: Math.ceil(this.timeLeft),
       monsters: this.monsters.map((mm) => mm.state),
+      monsterPos: this.monsters.map((mm) => ({ x: +mm.group.position.x.toFixed(1), z: +mm.group.position.z.toFixed(1) })),
+      carriedItems: this.carried.map((i) => ({ id: i.id, uid: i.uid })),
+      activeDecoy: !!this.activeDecoy,
+      monsterStates: this.monsters.map((mm) => mm.state),
+      temperaments: this.monsters.map((mm) => mm.temperament),
+      zone: this.zone,
+      routeEvent: this.routeEvent,
+      seed: this.runConfig.seed,
+      difficulty: this.runConfig.difficulty,
+      perk: this.runConfig.perkId,
+      lootLayout: this.lootLayout,
+      tracesFound: [...this.tracesFoundRun],
+      wrapped: [...this.wrappedUids],
+      lanternLit: this.lanternLit,
+      shortcutCleared: this.shortcutCleared,
+      peakNoise: +this.peakNoise.toFixed(1),
+      loudestMoment: this.loudestMoment,
+      totalTime: this.runDuration,
     };
   }
 
@@ -817,11 +1215,33 @@ export class HillsEngine {
     for (const d of this.dropped) this.scene.remove(d.mesh);
     this.dropped = [];
     this.carried = freshHaul();
-    this.timeLeft = RUN_SECONDS;
+    const seedNumber = hashSeed(this.runConfig.seed || "standard-run");
+    this.rng = mulberry32(seedNumber ^ 0x5f3759df);
+    const layout = mulberry32(seedNumber);
+    const events: RouteEventId[] = ["fallen-tree", "flooded-creek", "washed-road"];
+    this.routeEvent = events[Math.floor(layout() * events.length)];
+    this.lootLayout = this.makeLootLayout(layout);
+    this.runDuration = this.runConfig.difficulty === "story" ? 480 : this.runConfig.difficulty === "ruthless" ? 360 : RUN_SECONDS;
+    this.timeLeft = this.runDuration;
     this.elapsed = 0;
     this.fogTime = 0; // every run opens on the same clear holler
     this.outcome = null;
     this.phase = start ? "playing" : "idle";
+    this.wrappedUids.clear();
+    this.setLantern(false);
+    this.lanternLit = false;
+    this.shortcutCleared = false;
+    this.activeDecoy = null;
+    this.tracesFoundRun.clear();
+    this.latestTrace = null;
+    this.peakNoise = 0;
+    this.loudestMoment = "You never made a sound worth remembering.";
+    this.lastDetectionText = null;
+    this.secondWindUsed = false;
+    this.graceUntil = -1;
+    this.fogWarnedCycle = -1;
+    this.noiseRadius = 0;
+    this.zone = this.zoneAt(pathX(START_Z), START_Z);
     this.playerPos.set(pathX(START_Z), 0, START_Z);
     this.playerPos.y = terrainHeight(this.playerPos.x, this.playerPos.z);
     this.facing = 0;
@@ -833,10 +1253,20 @@ export class HillsEngine {
       [pathX(14) + 11, 14],
       [pathX(48) - 12, 48],
     ];
+    const temperaments: Monster["temperament"][] = ["patient", "bold", "deaf"];
+    for (let i = temperaments.length - 1; i > 0; i--) {
+      const j = Math.floor(layout() * (i + 1));
+      [temperaments[i], temperaments[j]] = [temperaments[j], temperaments[i]];
+    }
     this.monsters.forEach((mon, i) => {
       const [x, z] = spawns[i];
       mon.group.position.set(x, terrainHeight(x, z), z);
-      mon.state = "roam";
+      mon.state = "unaware";
+      mon.temperament = temperaments[i];
+      mon.awareness = 0;
+      mon.searchTimer = 0;
+      mon.ignoreUntil = -1;
+      mon.lastDetectionCause = null;
       mon.waypoint.set(x, 0, z);
       mon.heard = null;
       mon.lastSeen = null;
@@ -851,9 +1281,88 @@ export class HillsEngine {
     this.phantomTimer = 7;
     this.falseGrowlTimer = 11;
     this.caption = "";
-    this.statusLine = "";
+    this.statusLine = start ? ROUTE_EVENT_LINES[this.routeEvent] : "";
+    this.statusAt = performance.now();
+    for (const t of TRACES) {
+      const grp = this.traceMeshes.get(t.id);
+      if (!grp) continue;
+      const known = this.runConfig.knownTraceIds.includes(t.id);
+      grp.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.name === "trace-ring") {
+          (o.material as THREE.MeshBasicMaterial).opacity = known ? 0.1 : 0.5;
+        }
+      });
+    }
+    this.buildRouteFeatures();
     this.updatePackVisual();
     this.emitHud();
+  }
+
+  private makeLootLayout(layout: () => number): Record<string, string> {
+    const bands: Record<string, { items: string[]; points: string[] }> = {
+      high: { items: ["coins", "fiddle", "ginseng"], points: ["homestead cache", "hollow cache", "ridge grave cache"] },
+      middle: { items: ["tools", "lantern", "kettle", "copper"], points: ["creek camp cache", "survey cache", "rail cache", "road cache"] },
+      light: { items: ["quilt"], points: ["homestead clothesline"] },
+    };
+    const out: Record<string, string> = {};
+    for (const band of Object.values(bands)) {
+      const points = [...band.points];
+      for (let i = points.length - 1; i > 0; i--) {
+        const j = Math.floor(layout() * (i + 1));
+        [points[i], points[j]] = [points[j], points[i]];
+      }
+      band.items.forEach((id, i) => { out[id] = points[i]; });
+    }
+    return out;
+  }
+
+  private buildRouteFeatures() {
+    if (this.routeSignGroup) this.scene.remove(this.routeSignGroup);
+    if (this.fallenTreeGroup) this.scene.remove(this.fallenTreeGroup);
+    this.routeSignGroup = null;
+    this.fallenTreeGroup = null;
+    this.colliders = this.colliders.filter((c) => c.id !== "fallen-tree");
+    const titles: Record<RouteEventId, [string, string]> = {
+      "fallen-tree": ["FALLEN TREE", "RIDGE SHORTCUT BLOCKED"],
+      "flooded-creek": ["CREEK HIGH", "SPLASHING CARRIES"],
+      "washed-road": ["ROAD WASHED", "THE PATH IS SLOW"],
+    };
+    const sign = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 3.1, 6), new THREE.MeshStandardMaterial({ color: 0x4a3b2c, roughness: 1 }));
+    post.position.y = 1.45;
+    sign.add(post);
+    const board = new THREE.Mesh(
+      new THREE.BoxGeometry(3.5, 1.6, 0.12),
+      new THREE.MeshStandardMaterial({ map: this.textTexture(titles[this.routeEvent][0], titles[this.routeEvent][1]), roughness: 0.9 })
+    );
+    board.position.y = 2.65;
+    sign.add(board);
+    const sx = pathX(-80) + 4.5;
+    sign.position.set(sx, terrainHeight(sx, -80), -80);
+    sign.rotation.y = -0.35;
+    this.scene.add(sign);
+    this.routeSignGroup = sign;
+
+    if (this.routeEvent === "fallen-tree" && !this.shortcutCleared) {
+      const grp = new THREE.Group();
+      const bark = new THREE.MeshStandardMaterial({ color: 0x4c3826, roughness: 1 });
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 9.5, 9), bark);
+      log.rotation.z = Math.PI / 2;
+      log.position.y = 0.55;
+      log.castShadow = true;
+      grp.add(log);
+      for (let i = 0; i < 5; i++) {
+        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 1.8, 6), bark);
+        branch.position.set(-3.4 + i * 1.6, 1.05, (i % 2 ? 0.35 : -0.3));
+        branch.rotation.set(0.7, 0, -0.55 + i * 0.22);
+        grp.add(branch);
+      }
+      const tx = shortcutX(38);
+      grp.position.set(tx, terrainHeight(tx, 38), 38);
+      this.scene.add(grp);
+      this.fallenTreeGroup = grp;
+      for (const dx of [-3.2, 0, 3.2]) this.colliders.push({ x: tx + dx, z: 38, r: 1.65, id: "fallen-tree" });
+    }
   }
 
   private updatePackVisual() {
@@ -867,6 +1376,74 @@ export class HillsEngine {
   private setStatus(line: string) {
     this.statusLine = line;
     this.statusAt = performance.now();
+  }
+
+  private zoneAt(x: number, z: number): ZoneId {
+    if (z > 24 && Math.abs(x - railX(z)) < 3.4) return "rail";
+    const hx = pathX(-76) + 10;
+    if (Math.hypot(x - hx, z + 76) < 13) return "homestead";
+    if (Math.abs(x - creekX(z)) < 2.4) return "creek";
+    if (Math.abs(x) >= 29 || (z > 6 && z < 70 && Math.abs(x - shortcutX(z)) < 5)) return "ridge";
+    return "hollow";
+  }
+
+  private zoneFogFactor(zone: ZoneId): number {
+    return zone === "hollow" ? 1.3 : zone === "ridge" ? 0.6 : zone === "rail" ? 0.8 : 1;
+  }
+
+  private noiseWeight(): number {
+    let w = this.carried.reduce((sum, item) => sum + item.weightKg * (this.wrappedUids.has(item.uid) ? 0.5 : 1), 0);
+    if (this.runConfig.perkId === "pack-mule") w = Math.max(0, w - 3);
+    return w;
+  }
+
+  private recordDetection(cause: DetectionCause, text?: string) {
+    const weight = this.carried.reduce((sum, i) => sum + i.weightKg, 0);
+    const zoneWords = { hollow: "in the hollow", ridge: "on the ridge", creek: "in the creek", homestead: "by the homestead", rail: "on the rail bed" }[this.zone];
+    const base =
+      cause === "sight"
+        ? `It saw you ${zoneWords}${this.lanternLit ? " — the lit lantern made you easier to pick out" : ""}.`
+        : cause === "fog churn"
+          ? `Fog churn gave you away ${zoneWords}: your noise reached ${this.noiseRadius.toFixed(1)} metres while the fog was thick.`
+          : cause === "noise"
+            ? `Your noise gave you away ${zoneWords}: ${this.gait === "hustle" ? "hustling" : "walking"} with ${weight} kg made a ${this.noiseRadius.toFixed(1)}-metre ring.`
+            : text ?? cause;
+    this.lastDetectionText = base;
+  }
+
+  private collectTraces() {
+    for (const t of TRACES) {
+      if (this.tracesFoundRun.has(t.id) || this.runConfig.knownTraceIds.includes(t.id)) continue;
+      if (Math.hypot(this.playerPos.x - t.x, this.playerPos.z - t.z) > 1.8) continue;
+      this.tracesFoundRun.add(t.id);
+      this.latestTrace = { id: t.id, title: t.title, short: t.short, at: performance.now() };
+      const grp = this.traceMeshes.get(t.id);
+      grp?.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.name === "trace-ring") (o.material as THREE.MeshBasicMaterial).opacity = 0.1;
+      });
+      this.audio.tick();
+      this.setStatus(`Trace found — ${t.title}. ${t.short}`);
+      this.emitHud();
+    }
+  }
+
+  private trySecondWind(mon: Monster): boolean {
+    if (this.runConfig.perkId !== "second-wind" || this.secondWindUsed) return false;
+    const h = heaviestOf(this.carried);
+    if (!h) return false;
+    this.secondWindUsed = true;
+    const away = this.playerPos.clone().sub(mon.group.position).setY(0).normalize();
+    this.playerPos.add(away.multiplyScalar(2.4));
+    this.playerPos.x = clamp(this.playerPos.x, -64, 64);
+    this.playerPos.z = clamp(this.playerPos.z, -106, 110);
+    this.graceUntil = this.elapsed + 3;
+    mon.ignoreUntil = this.elapsed + 3;
+    mon.state = "hunting";
+    mon.heard = this.playerPos.clone().sub(away.multiplyScalar(2.4));
+    mon.lastSeen = mon.heard;
+    this.dropItem(h.uid);
+    this.setStatus("Second Wind — you break free and drop your heaviest item. It has lost you, for now.");
+    return true;
   }
 
   /* ═══════════════ the loop ═══════════════ */
@@ -928,9 +1505,9 @@ export class HillsEngine {
     const playing = this.phase === "playing" && !this.paused;
     if (playing) {
       this.elapsed += dt;
-      this.timeLeft = Math.max(0, RUN_SECONDS - this.elapsed);
+      this.timeLeft = Math.max(0, this.runDuration - this.elapsed);
     }
-    const progress = this.phase === "idle" ? 0.22 : 1 - this.timeLeft / RUN_SECONDS;
+    const progress = this.phase === "idle" ? 0.22 : 1 - this.timeLeft / this.runDuration;
 
     /* fog: a slow wave rolling in and out, thickening toward nightfall */
     /* phase offset -1.4: a run OPENS on a clear holler; the first fog
@@ -938,6 +1515,17 @@ export class HillsEngine {
     const wave = Math.pow(0.5 + 0.5 * Math.sin(this.fogTime * ((Math.PI * 2) / 85) - 1.4), 1.6);
     const base = lerp(0.006, 0.0135, progress);
     this.fogDensity = this.fogOverride ?? clamp(base + wave * 0.017, 0.005, 0.036);
+    if (playing && this.runConfig.perkId === "fog-sense" && this.fogOverride === null && !this.fogThick) {
+      const futureProgress = clamp(progress + 5 / this.runDuration, 0, 1);
+      const futureWave = Math.pow(0.5 + 0.5 * Math.sin((this.fogTime + 5) * ((Math.PI * 2) / 85) - 1.4), 1.6);
+      const futureDensity = clamp(lerp(0.006, 0.0135, futureProgress) + futureWave * 0.017, 0.005, 0.036);
+      const cycle = Math.floor((this.fogTime + 1.4) / 85);
+      if (futureDensity >= FOG_THICK && this.fogWarnedCycle !== cycle) {
+        this.fogWarnedCycle = cycle;
+        this.setStatus("The air turns cold — a fog bank is about five seconds out.");
+      }
+    }
+    if (this.fogThick) this.fogWarnedCycle = Math.floor((this.fogTime + 1.4) / 85);
     this.fog.density = this.fogDensity;
     this.fogThick = this.fogDensity >= FOG_THICK;
     const sky = this.skyDay.clone().lerp(this.skyDusk, progress);
@@ -997,7 +1585,18 @@ export class HillsEngine {
     const weight = this.carried.reduce((s, i) => s + i.weightKg, 0);
     const weightFactor = 1 - 0.42 * (weight / TOTAL_WEIGHT);
     let speed = (input.hustle ? 6.4 : 3.6) * weightFactor;
-    if (this.fogThick) speed *= 0.78;
+    const newZone = this.zoneAt(this.playerPos.x, this.playerPos.z);
+    if (newZone !== this.zone) {
+      this.zone = newZone;
+      this.setStatus(ZONE_LINES[newZone]);
+    }
+    const zoneFog = this.zoneFogFactor(this.zone);
+    if (this.fogThick) speed *= 1 - 0.22 * clamp(zoneFog, 0, 1.3);
+    if (this.zone === "creek") {
+      speed *= 1.15;
+      if (this.routeEvent === "flooded-creek") speed *= 0.88;
+    }
+    if (this.routeEvent === "washed-road" && Math.abs(this.playerPos.x - pathX(this.playerPos.z)) < 2.7) speed *= 0.82;
     const moving = Math.hypot(input.x, input.z) > 0.12;
 
     const F = { x: Math.sin(this.camYaw), z: Math.cos(this.camYaw) };
@@ -1039,13 +1638,30 @@ export class HillsEngine {
     this.armL.rotation.x = -swing * 0.8;
     this.armR.rotation.x = swing * 0.8;
 
-    /* noise */
+    /* noise — speed uses real weight; the ring uses noise weight, so the
+       quilt and Pack Mule can make a load quieter without making it lighter */
     let noise = 0;
     if (moving) {
-      noise = input.hustle ? 11 + weight * 0.35 : 5 + weight * 0.22;
-      if (this.fogThick) noise *= 1.5;
+      const nw = this.noiseWeight();
+      noise = input.hustle ? 11 + nw * 0.35 : 5 + nw * 0.22;
+      if (this.zone === "creek") noise *= this.routeEvent === "flooded-creek" ? 1.8 : 1.4;
+      if (this.zone === "rail") noise *= 0.8;
+      if (this.fogThick) noise *= 1 + 0.5 * zoneFog;
+      if (this.runConfig.perkId === "soft-step") noise *= 0.9;
     }
-    this.noiseRadius = noise;
+    if (noise > this.noiseRadius) {
+      const rate = this.runConfig.perkId === "iron-lungs" && input.hustle ? 4.5 : 8;
+      this.noiseRadius += (noise - this.noiseRadius) * Math.min(1, dt * rate);
+      if (noise - this.noiseRadius < 0.03) this.noiseRadius = noise;
+    } else {
+      this.noiseRadius = noise;
+    }
+    noise = this.noiseRadius;
+    if (noise > this.peakNoise) {
+      this.peakNoise = noise;
+      const zoneWords = { hollow: "in the hollow", ridge: "on the ridge", creek: "splashing through the creek", homestead: "by the homestead", rail: "on the rail bed" }[this.zone];
+      this.loudestMoment = `${input.hustle ? "Hustling" : "Walking"} ${zoneWords}${this.fogThick ? " in thick fog" : ""} with ${weight} kg — a ${noise.toFixed(1)}-metre ring of noise.`;
+    }
     /* the drawn ring IS the noise radius — one value, no display fudge:
        silent (radius 0) draws no ring at all, and the pack panel says so */
     this.ring.visible = noise > 0;
@@ -1074,20 +1690,27 @@ export class HillsEngine {
       }
     }
 
+    this.collectTraces();
     this.stepMonsters(dt, noise);
     this.stepHallucinations(dt);
 
     /* endings */
     const gapC = pathX(104);
     if (this.playerPos.z > EXIT_Z && Math.abs(this.playerPos.x - gapC) < 7.5) {
-      this.endRun("escaped");
+      this.endRun("escaped", "County Road");
+      return;
+    }
+    if (this.playerPos.z > 100 && Math.abs(this.playerPos.x - railX(this.playerPos.z)) < 6.5) {
+      this.endRun("escaped", "Rail Tunnel");
       return;
     }
     for (const mon of this.monsters) {
       const d = Math.hypot(mon.group.position.x - this.playerPos.x, mon.group.position.z - this.playerPos.z);
-      if (d < 1.5) {
-        this.endRun("caught");
-        return;
+      if (d < 1.5 && this.elapsed >= this.graceUntil) {
+        if (!this.trySecondWind(mon)) {
+          this.endRun("caught");
+          return;
+        }
       }
     }
     if (this.timeLeft <= 0) {
@@ -1099,61 +1722,118 @@ export class HillsEngine {
 
   private stepMonsters(dt: number, noise: number) {
     const late = this.timeLeft < 60;
-    const sight = (this.fogThick ? 11 : 26) * (late ? 1.15 : 1);
+    const diff = this.runConfig.difficulty === "story" ? { speed: 0.85, sight: 0.85 } : this.runConfig.difficulty === "ruthless" ? { speed: 1.15, sight: 1 } : { speed: 1, sight: 1 };
+    if (this.activeDecoy && this.elapsed > this.activeDecoy.until) this.activeDecoy = null;
+
     for (const mon of this.monsters) {
       const mp = mon.group.position;
       const toPlayer = Math.hypot(this.playerPos.x - mp.x, this.playerPos.z - mp.z);
+      const temp = {
+        patient: { hearing: 1, sight: 1, gain: 0.72, decay: 0.05, speed: 0.92, memory: 6 },
+        bold: { hearing: 1, sight: 1, gain: 1.25, decay: 0.16, speed: 1.12, memory: 2.6 },
+        deaf: { hearing: 0.7, sight: 1.15, gain: 1, decay: 0.1, speed: 1, memory: 4 },
+      }[mon.temperament];
+      let sightRange = (this.fogThick ? 11 : 26) * (late ? 1.15 : 1) * diff.sight * temp.sight;
+      if (this.lanternLit) sightRange *= 1.35;
       const canSee =
-        toPlayer < sight && !this.losBlocked(mp.x, mp.z, this.playerPos.x, this.playerPos.z);
+        this.elapsed >= mon.ignoreUntil &&
+        toPlayer < sightRange &&
+        !this.losBlocked(mp.x, mp.z, this.playerPos.x, this.playerPos.z);
 
-      if (canSee) {
-        mon.state = "chase";
-        mon.lastSeen = this.playerPos.clone();
-        mon.loseTimer = 4;
-        if (!mon.wasChasing) {
-          mon.wasChasing = true;
+      const decoy = this.activeDecoy;
+      const decoyDist = decoy ? Math.hypot(decoy.pos.x - mp.x, decoy.pos.z - mp.z) : Infinity;
+      const fiddle = this.dropped.find((d) => d.lureUntil !== undefined && d.lureUntil > this.elapsed);
+      const fiddleDist = fiddle ? Math.hypot(fiddle.mesh.position.x - mp.x, fiddle.mesh.position.z - mp.z) : Infinity;
+
+      if (decoy && decoyDist < decoy.radius && toPlayer > 8) {
+        if (mon.state !== "hunting") mon.lastDetectionCause = "coin burst";
+        mon.state = "hunting";
+        mon.heard = decoy.pos.clone();
+        mon.awareness = Math.max(mon.awareness, 0.8);
+      } else if (fiddle && fiddleDist < 48 && !(canSee && toPlayer < 12)) {
+        if (mon.state !== "hunting") mon.lastDetectionCause = "fiddle";
+        mon.state = "hunting";
+        mon.heard = fiddle.mesh.position.clone();
+        mon.awareness = Math.max(mon.awareness, 0.75);
+      } else if (canSee) {
+        if (mon.state !== "chasing") {
+          mon.lastDetectionCause = "sight";
+          this.recordDetection("sight");
           this.setStatus("It has seen you — RUN.");
         }
-      } else if (mon.state === "chase") {
+        mon.state = "chasing";
+        mon.awareness = 1;
+        mon.lastSeen = this.playerPos.clone();
+        mon.loseTimer = 4;
+        mon.wasChasing = true;
+      } else if (mon.state === "chasing") {
         mon.loseTimer -= dt;
         if (mon.loseTimer <= 0) {
-          mon.state = "investigate";
+          mon.state = "hunting";
           mon.heard = mon.lastSeen;
+          mon.searchTimer = temp.memory;
           mon.wasChasing = false;
         }
-      }
-      if (mon.state !== "chase" && noise > 0.5 && toPlayer <= noise) {
-        mon.state = "investigate";
-        mon.heard = this.playerPos.clone();
+      } else {
+        const hearingRadius = noise * temp.hearing;
+        if (noise > 0.5 && toPlayer <= hearingRadius) {
+          const closeness = clamp(1 - toPlayer / Math.max(1, hearingRadius), 0.15, 1);
+          mon.awareness = clamp(mon.awareness + dt * 1.35 * closeness * temp.gain, 0, 1);
+          const baseNoise = noise / (this.fogThick ? 1 + 0.5 * this.zoneFogFactor(this.zone) : 1) / (this.runConfig.perkId === "soft-step" ? 0.9 : 1);
+          const fogMadeTheDifference = this.fogThick && toPlayer > baseNoise && toPlayer <= noise;
+          if (mon.awareness >= 0.62 && mon.state !== "hunting") {
+            mon.state = "hunting";
+            mon.lastDetectionCause = fogMadeTheDifference ? "fog churn" : "noise";
+            this.recordDetection(mon.lastDetectionCause);
+          } else if (mon.awareness >= 0.22 && mon.state === "unaware") {
+            mon.state = "curious";
+            mon.lastDetectionCause = fogMadeTheDifference ? "fog churn" : "noise";
+            this.recordDetection(mon.lastDetectionCause);
+          }
+          if (mon.state === "curious" || mon.state === "hunting") mon.heard = this.playerPos.clone();
+        } else {
+          mon.awareness = clamp(mon.awareness - dt * temp.decay, 0, 1);
+          if (mon.state === "hunting") {
+            mon.searchTimer -= dt;
+            if (mon.searchTimer <= 0) {
+              mon.state = "curious";
+              mon.searchTimer = 3;
+              mon.waypoint = this.roamPointNear(mon.heard ?? mp);
+            }
+          } else if (mon.state === "curious") {
+            mon.searchTimer -= dt;
+            if (mon.searchTimer <= 0 && mon.awareness < 0.35) {
+              mon.state = "unaware";
+              mon.heard = null;
+              mon.waypoint = this.roamPoint();
+            }
+          }
+        }
       }
 
       let speed = 0;
       let target: THREE.Vector3 | null = null;
-      if (mon.state === "chase") {
+      if (mon.state === "chasing") {
         target = this.playerPos;
         speed = 5.7;
-      } else if (mon.state === "investigate" && mon.heard) {
+      } else if (mon.state === "hunting" && mon.heard) {
         target = mon.heard;
-        speed = 3.6;
+        speed = 4.05;
         if (Math.hypot(mon.heard.x - mp.x, mon.heard.z - mp.z) < 1.6) {
-          mon.waitTimer += dt;
           speed = 0;
-          mon.group.rotation.y += dt * 0.7; // looking around
-          if (mon.waitTimer > 2.4) {
-            mon.state = "roam";
-            mon.heard = null;
-            mon.waitTimer = 0;
-            mon.waypoint = this.roamPoint();
-          }
+          mon.group.rotation.y += dt * 0.7;
         }
+      } else if (mon.state === "curious") {
+        target = mon.heard ?? mon.waypoint;
+        speed = 2.75;
+        if (target && Math.hypot(target.x - mp.x, target.z - mp.z) < 1.6) speed = 0;
       } else {
-        mon.state = "roam";
+        mon.state = "unaware";
         target = mon.waypoint;
         speed = 2.3 * (late ? 1.15 : 1);
-        if (Math.hypot(mon.waypoint.x - mp.x, mon.waypoint.z - mp.z) < 2.2) {
-          mon.waypoint = this.roamPoint();
-        }
+        if (Math.hypot(mon.waypoint.x - mp.x, mon.waypoint.z - mp.z) < 2.2) mon.waypoint = this.roamPoint();
       }
+      speed *= diff.speed * temp.speed;
 
       if (target && speed > 0) {
         const dx = target.x - mp.x;
@@ -1170,13 +1850,12 @@ export class HillsEngine {
           mp.z = nz;
         }
         const want = Math.atan2(dx, dz);
-        let diff = want - mon.group.rotation.y;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        mon.group.rotation.y += diff * Math.min(1, dt * 5);
+        let diffAngle = want - mon.group.rotation.y;
+        while (diffAngle > Math.PI) diffAngle -= Math.PI * 2;
+        while (diffAngle < -Math.PI) diffAngle += Math.PI * 2;
+        mon.group.rotation.y += diffAngle * Math.min(1, dt * 5);
         mon.phase += dt * speed * 1.15;
       }
-      // keep monsters off each other and out of decor
       for (const other of this.monsters) {
         if (other === mon) continue;
         const dx = mp.x - other.group.position.x;
@@ -1198,6 +1877,12 @@ export class HillsEngine {
     }
   }
 
+  private roamPointNear(around: THREE.Vector3): THREE.Vector3 {
+    const z = clamp(around.z + (this.rng() * 2 - 1) * 14, -95, 90);
+    const x = clamp(around.x + (this.rng() * 2 - 1) * 14, -40, 40);
+    return new THREE.Vector3(x, 0, z);
+  }
+
   private roamPoint(): THREE.Vector3 {
     const z = -95 + this.rng() * 185;
     const x = clamp(pathX(z) + (this.rng() * 2 - 1) * 17, -40, 40);
@@ -1205,15 +1890,16 @@ export class HillsEngine {
   }
 
   private stepHallucinations(dt: number) {
+    if (this.lanternLit) return; // a lit lantern suppresses the fog's tricks
     // false growls: the audio radar lies while the fog is thick
     if (this.fogThick) {
       this.falseGrowlTimer -= dt;
       if (this.falseGrowlTimer <= 0) {
-        this.falseGrowlTimer = 11 + this.rng() * 8;
+        this.falseGrowlTimer = (11 + this.rng() * 8) * (this.runConfig.reducedHallucinations ? 2.5 : 1) / Math.max(0.4, this.zoneFogFactor(this.zone));
         const bearing = this.rng() * Math.PI * 2 - Math.PI;
         const distBucket = 12 + this.rng() * 22;
         this.audio.falseGrowl(Math.sin(bearing), clamp(17 / (distBucket + 3) - 0.1, 0.15, 0.85));
-        this.caption = `Something growls — ${distBucket < 18 ? "near" : "far off"} — ${bearingWords(bearing)}`;
+        this.caption = `Something growls — ${distBucket < 18 ? "near" : "far off"} — ${bearingWords(bearing)}${this.runConfig.perkId === "light-sleeper" ? " — …or maybe nothing" : ""}`;
         this.captionBearing = (bearing * 180) / Math.PI;
         this.captionCloseness = clamp(1 - distBucket / 40, 0.15, 0.9);
         this.falseCaptionUntil = this.elapsed + 3.2;
@@ -1221,8 +1907,8 @@ export class HillsEngine {
       // phantoms at the edge of vision
       this.phantomTimer -= dt;
       if (this.phantomTimer <= 0) {
-        this.phantomTimer = 9 + this.rng() * 6;
-        const p = this.phantoms.find((ph) => !ph.active);
+        this.phantomTimer = (9 + this.rng() * 6) * (this.runConfig.reducedHallucinations ? 2.5 : 1) / Math.max(0.4, this.zoneFogFactor(this.zone));
+        const p = this.runConfig.reducedHallucinations && this.rng() < 0.5 ? undefined : this.phantoms.find((ph) => !ph.active);
         if (p) {
           const ang = this.rng() * Math.PI * 2;
           const dist = 19 + this.rng() * 7;
@@ -1260,7 +1946,7 @@ export class HillsEngine {
     // place the real growls; compute the caption from the nearest real monster
     const camF = new THREE.Vector3();
     this.camera.getWorldDirection(camF);
-    let nearest: { d: number; bearing: number; chase: boolean } | null = null;
+    let nearest: { d: number; bearing: number; state: MonsterState } | null = null;
     this.monsters.forEach((mon, i) => {
       const mp = mon.group.position;
       const dx = mp.x - this.camera.position.x;
@@ -1268,20 +1954,32 @@ export class HillsEngine {
       const d = Math.hypot(dx, dz);
       const bearing = signedAngle(camF.x, camF.z, dx, dz);
       const level = clamp(17 / (d + 3) - 0.1, 0, 1);
-      this.audio.setVoice(mon.voice >= 0 ? mon.voice : i, d > 95 ? 0 : level, Math.sin(bearing), mon.state === "chase");
-      if (!nearest || d < nearest.d) nearest = { d, bearing, chase: mon.state === "chase" };
+      this.audio.setVoice(mon.voice >= 0 ? mon.voice : i, d > 95 ? 0 : level, Math.sin(bearing), mon.state);
+      if (!nearest || d < nearest.d) nearest = { d, bearing, state: mon.state };
     });
     this.captionTimer -= 0.016;
     if (nearest && this.elapsed >= this.falseCaptionUntil) {
-      const n = nearest as { d: number; bearing: number; chase: boolean };
+      const n = nearest as { d: number; bearing: number; state: MonsterState };
+      this.soundLevel = clamp(17 / (n.d + 3) - 0.1, 0, 1);
+      this.soundBearing = (n.bearing * 180) / Math.PI;
+      this.nearestMonsterState = n.state;
       if (n.d < 46) {
-        this.caption = `Something growls — ${n.d < 10 ? "close" : n.d < 20 ? "near" : n.d < 34 ? "off in the trees" : "far off"} — ${bearingWords(n.bearing)}${n.chase ? " — and coming fast" : ""}`;
+        const stateWords = {
+          unaware: "breathing slow, unaware",
+          curious: "growls, uncertain — it heard something",
+          hunting: "is hunting — moving with purpose",
+          chasing: "— and coming fast",
+        }[n.state];
+        this.caption = n.state === "unaware"
+          ? `Something breathes — ${n.d < 20 ? "near" : "off in the trees"} — ${bearingWords(n.bearing)} — ${stateWords}`
+          : `Something ${stateWords} — ${n.d < 10 ? "close" : n.d < 20 ? "near" : n.d < 34 ? "off in the trees" : "far off"} — ${bearingWords(n.bearing)}`;
         this.captionBearing = (n.bearing * 180) / Math.PI;
         this.captionCloseness = clamp(1 - n.d / 46, 0, 1);
       } else {
         this.caption = "";
         this.captionBearing = null;
         this.captionCloseness = 0;
+        this.soundLevel = 0;
       }
     }
   }
@@ -1302,7 +2000,7 @@ export class HillsEngine {
     this.camera.lookAt(this.playerPos.x, this.playerPos.y + 1.7, this.playerPos.z);
   }
 
-  private endRun(kind: OutcomeKind) {
+  private endRun(kind: OutcomeKind, exitUsed: string | null = null) {
     if (this.phase !== "playing") return;
     this.phase = "ended";
     const carriedList: LeftItem[] = this.carried.map((i) => ({ name: i.name, value: i.value, weightKg: i.weightKg }));
@@ -1314,6 +2012,13 @@ export class HillsEngine {
       carried: carriedList,
       leftBehind: kind === "escaped" ? left : [...left, ...carriedList],
       secondsUsed: Math.floor(this.elapsed),
+      exitUsed,
+      gaveAway: kind === "caught" ? this.lastDetectionText ?? this.loudestMoment : null,
+      loudestMoment: this.loudestMoment,
+      peakNoise: +this.peakNoise.toFixed(1),
+      tracesFound: [...this.tracesFoundRun],
+      routeEvent: this.routeEvent,
+      seed: this.runConfig.seed,
     };
     if (kind === "escaped") this.audio.escapeChime();
     else this.audio.sting();
@@ -1327,8 +2032,8 @@ export class HillsEngine {
     this.onHud({
       phase: this.phase,
       timeLeft: this.timeLeft,
-      totalTime: RUN_SECONDS,
-      carried: this.carried.map((i) => ({ uid: i.uid, name: i.name, value: i.value, weightKg: i.weightKg })),
+      totalTime: this.runDuration,
+      carried: this.carried.map((i) => ({ uid: i.uid, id: i.id, name: i.name, value: i.value, weightKg: i.weightKg, quirk: i.quirk, wrapped: this.wrappedUids.has(i.uid), origin: this.lootLayout[i.id] ?? "the homestead" })),
       carriedValue: this.carried.reduce((s, i) => s + i.value, 0),
       carriedWeight: this.carried.reduce((s, i) => s + i.weightKg, 0),
       heaviestName: h?.name ?? null,
@@ -1342,6 +2047,22 @@ export class HillsEngine {
       statusLine: this.statusLine,
       statusAt: this.statusAt,
       outcome: this.outcome,
+      zone: this.zone,
+      zoneLine: ZONE_LINES[this.zone],
+      seed: this.runConfig.seed,
+      difficulty: this.runConfig.difficulty,
+      perkId: this.runConfig.perkId,
+      routeEvent: this.runConfig.perkId === "trailwise" ? this.routeEvent : null,
+      routeEventLine: this.runConfig.perkId === "trailwise" ? ROUTE_EVENT_LINES[this.routeEvent] : null,
+      shortcutCleared: this.shortcutCleared,
+      fallenTreeActive: this.routeEvent === "fallen-tree" && !this.shortcutCleared,
+      nearFallenTree: this.isNearFallenTree(),
+      lanternLit: this.lanternLit,
+      tracesFound: [...this.tracesFoundRun],
+      latestTrace: this.latestTrace,
+      monsterState: this.nearestMonsterState,
+      soundLevel: this.soundLevel,
+      soundBearingDeg: this.soundBearing,
     });
   }
 }
