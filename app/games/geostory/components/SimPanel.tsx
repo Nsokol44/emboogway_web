@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CODE_IDX, COUNTRIES, START_YEAR, fmtGdp, fmtPop } from "../lib/data";
+import { BASELINE, CODE_IDX, COUNTRIES, START_YEAR, fmtGdp, fmtPop } from "../lib/data";
 import {
-  CRISIS_REGIONS, DEFAULT_DECK, INFLUENCE_POOL, LEVERS, STRAITS, ZERO_BOOSTS,
+  CRISIS_REGIONS, DEFAULT_DECK, INFLUENCE_POOL, LEVERS, LEVER_YEARS, STRAITS, ZERO_BOOSTS,
   type Boosts, type DeckControls, type Intervention, type LeverId, type SimConfig, type SimEvent, type SimResult,
 } from "../lib/engine";
+import { eventWhy } from "../lib/why";
+import { LADDER_TIERS, ladderAt } from "../lib/ladder";
 import {
   PACES, eventSiteIdx, isMajorEvent, rankAt, type PaceId,
 } from "../lib/idler";
@@ -56,6 +58,8 @@ interface NoteItem {
   kind: "turning" | "event";
   year: number;
   title: string;
+  /** the engine's one-line why (item 1a), for events that carry a cause */
+  why?: string;
   siteIdx: number | null;
   anchor: boolean;
   status: "open" | "passed" | "spent" | "seen";
@@ -168,12 +172,13 @@ function ChaosSlider({ chaos, onCommit }: { chaos: number; onCommit: (v: number)
    pause for it — the item lives in the notifications inbox until acted
    on or left behind. Spending writes an Intervention into the run
    config, so the altered history reproduces exactly. */
-function InterventionBar({ year, pool, spent, options, selectedIdx, onSpend, onDone }: {
+function InterventionBar({ year, pool, spent, options, selectedIdx, claimIdx, onSpend, onDone }: {
   year: number;
   pool: number;
   spent: number;
   options: { idx: number; code: string; name: string }[];
   selectedIdx: number | null;
+  claimIdx: number | null;
   onSpend: (inv: Intervention) => void;
   onDone: () => void;
 }) {
@@ -185,12 +190,24 @@ function InterventionBar({ year, pool, spent, options, selectedIdx, onSpend, onD
   const [strait, setStrait] = useState("hormuz");
   const [region, setRegion] = useState("sahel");
   useEffect(() => { if (selectedIdx !== null) setTarget(COUNTRIES[selectedIdx].code); }, [selectedIdx]);
+  /* pair verbs open claim-aware: the first slot is your anchor (the
+     streak-holder to burn, the pact partner, the faith's source) and
+     the second is the country you have selected */
+  useEffect(() => {
+    if (lever.target !== "pair") return;
+    if (claimIdx !== null) setTarget(COUNTRIES[claimIdx].code);
+    if (selectedIdx !== null && COUNTRIES[selectedIdx].code !== (claimIdx !== null ? COUNTRIES[claimIdx].code : target)) {
+      setTargetB(COUNTRIES[selectedIdx].code);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leverId]);
   const canAfford = pool >= lever.cost;
   const selectCls = "rounded border px-2 py-1.5 text-xs";
   const selectStyle = { background: "#04101e", color: CREAM, borderColor: "rgba(201,150,58,0.4)" } as const;
   const spend = () => {
     let t = target;
     if (lever.id === "trade") t = `${target}${toward ? ">" : "!"}${targetB}`;
+    else if (lever.target === "pair") t = `${target}>${targetB}`;
     else if (lever.id === "chokepoint") t = strait;
     else if (lever.id === "crisis") t = region;
     onSpend({ year, lever: lever.id, target: t, cost: lever.cost });
@@ -201,6 +218,13 @@ function InterventionBar({ year, pool, spent, options, selectedIdx, onSpend, onD
   const effect =
     lever.id === "tech" ? `give ${nameOf(target)} a decade of accelerated research` :
     lever.id === "stability" ? `hold ${nameOf(target)}'s stability up for a decade` :
+    lever.id === "fortify" ? `fortify ${nameOf(target)}'s border for 10 years — siege strain drains twice as fast and besiegers need a wider power gap` :
+    lever.id === "guarantee" ? `guarantee ${nameOf(target)}'s independence for 15 years — it cannot fold, and siege strain builds at half rate` :
+    lever.id === "stabilise" ? `stabilise ${nameOf(target)} right now — a one-off +0.10 stability that fades back toward its anchor` :
+    lever.id === "pluralism" ? `shield ${nameOf(target)}'s pluralism for 10 years — faith pressure builds at half rate and a flip needs half again as much` :
+    lever.id === "counter" ? `burn ${nameOf(target)}'s fold streak over ${nameOf(targetB)} back to zero — its five-year clock restarts` :
+    lever.id === "pact" ? `bind ${nameOf(target)} and ${nameOf(targetB)} in a market pact for 15 years — trade gravity up both ways, both grow a little faster` :
+    lever.id === "mission" ? `send ${nameOf(target)}'s faith into ${nameOf(targetB)} for 10 years of patient pressure` :
     lever.id === "trade" ? `tilt ${nameOf(target)}'s trade ${toward ? `toward ${nameOf(targetB)}` : `away from ${nameOf(targetB)}`} for 15 years` :
     lever.id === "chokepoint" ? `harden the ${STRAITS.find((s) => s.id === strait)?.label ?? strait}, so closures bite 65% less for 20 years` :
     `unleash a bounded crisis across ${CRISIS_REGIONS.find((r) => r.key === region)?.label ?? region}`;
@@ -260,6 +284,19 @@ function InterventionBar({ year, pool, spent, options, selectedIdx, onSpend, onD
             </select>
           </>
         )}
+        {lever.target === "pair" && (
+          <>
+            <select value={target} onChange={(e) => setTarget(e.target.value)} className={selectCls} style={selectStyle}
+              aria-label={lever.id === "counter" ? "Power whose streak is wiped" : lever.id === "mission" ? "Faith's source country" : "First pact partner"}>
+              {options.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+            </select>
+            <span className="font-display text-[11px]" style={{ color: GOLD }} aria-hidden>→</span>
+            <select value={targetB} onChange={(e) => setTargetB(e.target.value)} className={selectCls} style={selectStyle}
+              aria-label={lever.id === "counter" ? "Country the streak is over" : lever.id === "mission" ? "Country the mission enters" : "Second pact partner"}>
+              {options.filter((o) => o.code !== target).map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+            </select>
+          </>
+        )}
         {lever.target === "strait" && (
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Choose a strait">
             {STRAITS.map((s) => (
@@ -291,10 +328,11 @@ function InterventionBar({ year, pool, spent, options, selectedIdx, onSpend, onD
  *  mobile NOTES sheet tab. Open Turning Points render their live
  *  intervention form; everything else is a record card (anchor items
  *  in cyan, newest first, list capped upstream). */
-function NotesList({ notes, pool, spent, options, selectedIdx, onSpend, onPass, onFocus }: {
+function NotesList({ notes, pool, spent, options, selectedIdx, claimIdx, onSpend, onPass, onFocus }: {
   notes: NoteItem[]; pool: number; spent: number;
   options: { idx: number; code: string; name: string }[];
   selectedIdx: number | null;
+  claimIdx: number | null;
   onSpend: (note: NoteItem, inv: Intervention) => void;
   onPass: (note: NoteItem) => void;
   onFocus: (idx: number) => void;
@@ -312,7 +350,7 @@ function NotesList({ notes, pool, spent, options, selectedIdx, onSpend, onPass, 
     <ol className="space-y-2">
       {notes.map((n) => n.kind === "turning" && n.status === "open" ? (
         <li key={n.id}>
-          <InterventionBar year={n.year} pool={pool} spent={spent} options={options} selectedIdx={selectedIdx}
+          <InterventionBar year={n.year} pool={pool} spent={spent} options={options} selectedIdx={selectedIdx} claimIdx={claimIdx}
             onSpend={(inv) => onSpend(n, inv)} onDone={() => onPass(n)} />
         </li>
       ) : (
@@ -328,6 +366,7 @@ function NotesList({ notes, pool, spent, options, selectedIdx, onSpend, onPass, 
           <p className="mt-0.5 text-[11.5px] leading-snug" style={{ color: n.status === "passed" ? MUTED : PARCH }}>
             {n.title}{n.kind === "turning" && n.status === "passed" ? " — the moment went by unacted." : ""}
           </p>
+          {n.why && <p className="mt-0.5 text-[10.5px] italic leading-snug" style={{ color: MUTED }}>{n.why}</p>}
           {n.siteIdx !== null && (
             <button onClick={() => onFocus(n.siteIdx!)} className="mt-1 text-[10.5px] font-semibold tracking-wide hover:opacity-80"
               style={{ color: n.anchor ? CLAIM : GOLD }} aria-label={`Show ${COUNTRIES[n.siteIdx]?.name} on the map`}>
@@ -337,6 +376,31 @@ function NotesList({ notes, pool, spent, options, selectedIdx, onSpend, onPass, 
         </li>
       ))}
     </ol>
+  );
+}
+
+/** item 1c — "at risk in your sphere": members of the claim's bloc that
+ *  a RIVAL is besieging or slowly folding. Lives in the rail, the notes
+ *  tab and the dossier — never a modal, never pauses anything. */
+function SphereRiskBlock({ rows, onFocus }: {
+  rows: { idx: number; threat: string; urgent: boolean }[];
+  onFocus: (idx: number) => void;
+}) {
+  if (!rows.length) return null;
+  return (
+    <div className="mb-2 rounded-lg border px-3 py-2" style={{ borderColor: "rgba(209,96,61,0.55)", background: "rgba(209,96,61,0.07)" }}>
+      <span className="font-display text-[10px] tracking-[0.18em]" style={{ color: "#e09a83" }}>⚠ AT RISK IN YOUR SPHERE</span>
+      <ul className="mt-1 space-y-1">
+        {rows.map((r) => (
+          <li key={r.idx}>
+            <button onClick={() => onFocus(r.idx)} className="block min-h-[36px] w-full text-left text-[11px] leading-snug hover:opacity-85" style={{ color: PARCH }}>
+              <strong style={{ color: r.urgent ? "#e09a83" : CREAM }}>{COUNTRIES[r.idx].name}</strong> — {r.threat}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-[10px] leading-snug" style={{ color: FAINT }}>Answer at a Turning Point: Guarantee Independence, Counter-Influence, Fortify Border, Stabilise.</p>
+    </div>
   );
 }
 
@@ -514,10 +578,10 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   /* the anchor's own chronicle lines (claims, switches, rank movements),
      written by SimulatorApp in the brief's voice — merged into the feed */
   const anchorFeed = claimIdx !== null
-    ? idler.anchorLog.filter((a) => a.year <= calYear).map((a) => ({ year: a.year, text: a.text, anchor: true as const, kind: null as SimEvent["kind"] | null }))
+    ? idler.anchorLog.filter((a) => a.year <= calYear).map((a) => ({ year: a.year, text: a.text, anchor: true as const, kind: null as SimEvent["kind"] | null, why: null as string | null }))
     : [];
-  const mergedFeed: { year: number; text: string; anchor: boolean; kind: SimEvent["kind"] | null }[] = [
-    ...feed.map((e) => ({ year: e.year, text: e.text, anchor: false, kind: e.kind as SimEvent["kind"] | null })),
+  const mergedFeed: { year: number; text: string; anchor: boolean; kind: SimEvent["kind"] | null; why: string | null }[] = [
+    ...feed.map((e) => ({ year: e.year, text: e.text, anchor: false, kind: e.kind as SimEvent["kind"] | null, why: eventWhy(e) })),
     ...anchorFeed,
   ].sort((a, b) => b.year - a.year).slice(0, 12);
 
@@ -644,7 +708,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
       for (const e of majors.slice(0, 2)) {
         const site = eventSiteIdx(e);
         const anchor = claimIdx !== null && (site === claimIdx || (site !== null && result.years[yearIdx][site].c === claimIdx) || e.text.includes(COUNTRIES[claimIdx].name));
-        pushNote({ id: `e${calYear}:${e.kind}:${e.text.slice(0, 24)}`, kind: "event", year: calYear, title: e.text, siteIdx: site, anchor, status: "seen", bornAt: Date.now() });
+        pushNote({ id: `e${calYear}:${e.kind}:${e.text.slice(0, 24)}`, kind: "event", year: calYear, title: e.text, why: eventWhy(e) ?? undefined, siteIdx: site, anchor, status: "seen", bornAt: Date.now() });
         arrived = true;
       }
       if (arrived) chime(chimeOn);
@@ -788,16 +852,68 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
       w: at.tg / 40,
     });
     for (const v of interventions) {
-      const dur = v.lever === "trade" ? 15 : v.lever === "chokepoint" ? 20 : 10;
-      if (calYear < v.year || calYear >= v.year + dur) continue;
-      const mine = (v.lever === "tech" || v.lever === "stability") && v.target === code;
-      const tradeMine = v.lever === "trade" && v.target.split(/[>!]/)[0] === code;
-      if (mine || tradeMine) {
-        lines.push({ head: "YOUR HAND", body: `${LEVERS.find((l) => l.id === v.lever)?.name} is still working — until ${v.year + dur}.`, w: 2 });
+      const leverName = LEVERS.find((l) => l.id === v.lever)?.name ?? v.lever;
+      if (v.lever === "counter") {
+        if (calYear === v.year && v.target.split(">")[1] === code) {
+          lines.push({ head: "YOUR HAND", body: `${leverName} landed this year — the named power's fold streak here was wiped to zero; the five-year clock restarted.`, w: 2 });
+        }
+        continue;
+      }
+      if (v.lever === "stabilise") {
+        if (calYear === v.year && v.target === code) {
+          lines.push({ head: "YOUR HAND", body: `${leverName} landed this year — a one-off +0.10 stability, now fading back toward the anchor.`, w: 2 });
+        }
+        continue;
+      }
+      const dur = LEVER_YEARS[v.lever];
+      if (dur <= 0 || calYear < v.year || calYear >= v.year + dur) continue;
+      if (v.target === code || v.target.split(/[>!]/).includes(code)) {
+        lines.push({ head: "YOUR HAND", body: `${leverName} is still working here — until ${v.year + dur}.`, w: 2 });
       }
     }
     return lines.sort((a, b) => b.w - a.w).slice(0, 3);
   }, [result, yearIdx, selectedIdx, interventions, calYear]);
+
+  /* ---- items 1b/1c/4: the risk track, the sphere watch, the ladder ---- */
+  const riskSel = selectedIdx !== null ? result.diagnostics?.risk[yearIdx]?.[selectedIdx] ?? null : null;
+  const riskFoldLine = useMemo(() => {
+    if (!riskSel || !sel || !selGeo || selectedIdx === null || sel.c !== selectedIdx) return null;
+    if (riskSel.partner < 0) return "Fold — no dominant partner: no orbit is forming around it.";
+    const partnerName = COUNTRIES[riskSel.partner].name;
+    const gates = `streak ${Math.min(riskSel.streak, 5)}/5 ${riskSel.streak >= 5 ? "✓" : "✗"} · stability ${sel.stab.toFixed(2)} ${sel.stab < 0.5 ? "< 0.50 ✓" : "≥ 0.50 ✗"} · power ${riskSel.foldRatio.toFixed(1)}× ${riskSel.foldRatio >= 1.5 ? "≥ 1.5× ✓" : "< 1.5× ✗"}`;
+    let blocker: string;
+    if (riskSel.guarUntil > calYear) blocker = `Blocked: the independence guarantee holds the door until ${riskSel.guarUntil}.`;
+    else if (BASELINE[selGeo.code]?.major) blocker = "Blocked: the great powers never fold.";
+    else if (selRank !== null && selRank <= 10) blocker = "Blocked: top-10 powers never fold.";
+    else if (riskSel.presser >= 0 && riskSel.presser !== riskSel.partner) blocker = `Blocked: ${COUNTRIES[riskSel.presser].name} is besieging it — a contested state does not drift into a third party's orbit.`;
+    else if (riskSel.streak < 5) blocker = `Blocked: ${partnerName} needs ${5 - riskSel.streak} more straight year${5 - riskSel.streak === 1 ? "" : "s"} as its dominant partner.`;
+    else if (sel.stab >= 0.5) blocker = "Blocked: stability is too high — it must slip under 0.50.";
+    else if (riskSel.foldRatio < 1.5) blocker = `Blocked: ${partnerName} is not heavy enough yet — its bloc must reach 1.5× this country's.`;
+    else blocker = `⚠ THE FOLD IS LIVE — every gate passes; it folds at the next check unless it is guaranteed or stabilised, or ${partnerName}'s streak is broken.`;
+    return `Fold — dominant partner ${partnerName}: ${gates}. ${blocker}`;
+  }, [riskSel, sel, selGeo, selRank, selectedIdx, calYear]);
+  const ladderClaim = claimIdx !== null ? ladderAt(result, yearIdx, claimIdx) : null;
+  const sphereRisk = useMemo(() => {
+    const diag = result.diagnostics;
+    if (claimIdx === null || !diag) return [] as { idx: number; threat: string; urgent: boolean }[];
+    const rows: { idx: number; threat: string; urgent: boolean; score: number }[] = [];
+    const snaps = result.years[yearIdx];
+    for (let i = 0; i < COUNTRIES.length; i++) {
+      if (snaps[i].c !== claimIdx) continue; // my bloc: my clients, and me while sovereign
+      const rk = diag.risk[yearIdx][i];
+      const foldThreat = rk.partner >= 0 && rk.partner !== claimIdx && rk.partner !== i && rk.streak >= 2;
+      const siegeThreat = rk.presser >= 0 && rk.presser !== claimIdx && rk.strain >= 0.1;
+      if (!foldThreat && !siegeThreat) continue;
+      const threat = foldThreat
+        ? `${COUNTRIES[rk.partner].name} is building a fold — streak ${Math.min(rk.streak, 5)}/5${rk.streak >= 4 ? ", one year from the gate" : ""}`
+        : `besieged by ${COUNTRIES[rk.presser].name} — strain ${rk.strain.toFixed(2)} and grinding toward the annexation gate`;
+      rows.push({ idx: i, threat, urgent: (foldThreat && rk.streak >= 4) || rk.strain >= 0.25, score: Math.max(rk.streak, rk.strain * 10) });
+    }
+    return rows
+      .sort((a, b) => Number(b.urgent) - Number(a.urgent) || b.score - a.score)
+      .slice(0, 5)
+      .map(({ idx, threat, urgent }) => ({ idx, threat, urgent }));
+  }, [result, yearIdx, claimIdx]);
 
   const setBoost = (key: keyof Boosts) => (v: number) => onCfg({ ...cfg, boosts: { ...cfg.boosts, [key]: v } });
   const setRivalBoost = (code: string) => (key: keyof Boosts) => (v: number) =>
@@ -992,7 +1108,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               ⚑ INFLUENCE — earned {INFLUENCE_POOL} · spent {spentTotal} · balance {poolLeft}
             </div>
             <div className="min-h-0 overflow-y-auto overscroll-contain px-2.5 pb-2.5">
-              <NotesList notes={notes} pool={poolLeft} spent={spentTotal} options={powerOptions} selectedIdx={selectedIdx}
+              <SphereRiskBlock rows={sphereRisk} onFocus={(idx) => { onSelect(idx); setSheetTab("dossier"); }} />
+              <NotesList notes={notes} pool={poolLeft} spent={spentTotal} options={powerOptions} selectedIdx={selectedIdx} claimIdx={claimIdx}
                 onSpend={spendNote} onPass={passNote}
                 onFocus={(idx) => { onSelect(idx); setSheetTab("dossier"); }} />
             </div>
@@ -1143,7 +1260,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           <p className="mb-2 text-[11px]" style={{ color: MUTED }}>
             ⚑ INFLUENCE — earned {INFLUENCE_POOL} · spent {spentTotal} · balance {poolLeft}. Turning Points never pause the run: act while their year is live, or they pass and the item says so.
           </p>
-          <NotesList notes={notes} pool={poolLeft} spent={spentTotal} options={powerOptions} selectedIdx={selectedIdx}
+          <SphereRiskBlock rows={sphereRisk} onFocus={(idx) => { onSelect(idx); setSheetTab("dossier"); }} />
+          <NotesList notes={notes} pool={poolLeft} spent={spentTotal} options={powerOptions} selectedIdx={selectedIdx} claimIdx={claimIdx}
             onSpend={spendNote} onPass={passNote}
             onFocus={(idx) => { onSelect(idx); setSheetTab("dossier"); }} />
         </div>
@@ -1268,7 +1386,10 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                   {e.anchor
                     ? <span className="shrink-0 text-[10px] leading-[1.4]" style={{ color: CLAIM }} aria-hidden>⚑</span>
                     : <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: e.kind ? KIND_STYLE[e.kind] : FAINT }} />}
-                  <span>{e.text}</span>
+                  <span className="min-w-0">
+                    <span className="block">{e.text}</span>
+                    {e.why && <span className="block text-[10.5px] font-normal italic leading-snug" style={{ color: MUTED }}>{e.why}</span>}
+                  </span>
                 </li>
               );
             })}
@@ -1400,6 +1521,30 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               </p>
             )}
           </div>
+          {/* RISK — the engine's live siege / fold bookkeeping for this country (item 1b) */}
+          {riskSel && sel && (
+            <div className="mt-2 border-t pt-2" style={{ borderColor: "rgba(201,150,58,0.22)" }}>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] tracking-[0.18em]" style={{ color: MUTED }}>RISK — {calYear}</span>
+                <span className="h-px flex-1" style={{ background: "rgba(201,150,58,0.18)" }} />
+              </div>
+              <ul className="mt-1.5 space-y-1 text-[11px] leading-snug" style={{ color: PARCH }}>
+                {sel.c !== selectedIdx ? (
+                  <li>Held by {COUNTRIES[sel.c].name} — it carries no fold or siege risk of its own; freedom comes by breakaway, or when a third power besieges its holder.</li>
+                ) : (
+                  <>
+                    <li>{riskSel.presser >= 0
+                      ? <>Siege — <strong style={{ color: CREAM }}>{COUNTRIES[riskSel.presser].name}</strong> is grinding it down: strain {riskSel.strain.toFixed(2)} of 0.45; effective stability {(sel.stab - riskSel.strain).toFixed(2)} against the 0.50 annexation bar.</>
+                      : <>Siege — none this year.{riskSel.strain > 0.005 ? ` Leftover strain ${riskSel.strain.toFixed(2)} is healing.` : ""}</>}</li>
+                    {riskFoldLine && <li>{riskFoldLine}</li>}
+                    {riskSel.guarUntil > calYear && <li>🛡 Guaranteed until {riskSel.guarUntil} — it cannot fold, and strain builds at half rate.</li>}
+                    {riskSel.fortUntil > calYear && <li>🧱 Fortified until {riskSel.fortUntil} — strain drains twice as fast; besiegers need a wider gap.</li>}
+                    {riskSel.momYears > 0 && <li>Momentum — +{riskSel.momGrow.toFixed(1)} growth banked, ≈{riskSel.momYears} {riskSel.momYears === 1 ? "year" : "years"} left before it fades.</li>}
+                  </>
+                )}
+              </ul>
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             {claimIdx === selectedIdx ? (
               <>
@@ -1465,6 +1610,40 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
           ) : (
             <p className="px-1 py-2 text-xs" style={{ color: FAINT }}>Click a country on the map to inspect it.</p>
           )}
+          {/* VICTORY LADDER — the claim's standing, live (item 4) */}
+          {claimIdx !== null && ladderClaim && (
+            <div className="mt-2 rounded-lg border px-3.5 py-3" style={{ borderColor: "rgba(34,211,238,0.40)", background: "rgba(34,211,238,0.05)" }}>
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span className="font-display text-xs tracking-[0.18em]" style={{ color: CLAIM }}>⚑ VICTORY LADDER — {COUNTRIES[claimIdx].name.toUpperCase()}</span>
+                <span className="ml-auto font-display text-sm tracking-[0.12em]" style={{ color: GOLD }}>{ladderClaim.tier.toUpperCase()}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1" role="list" aria-label="Victory ladder tiers">
+                {LADDER_TIERS.map((t, i) => {
+                  const reached = i < ladderClaim.tierIdx;
+                  const current = i === ladderClaim.tierIdx;
+                  return (
+                    <span key={t} role="listitem" className="rounded-full border px-2 py-0.5 text-[10px] tracking-wide"
+                      style={{
+                        borderColor: current ? "rgba(240,192,96,0.8)" : reached ? "rgba(34,211,238,0.55)" : "rgba(147,167,189,0.3)",
+                        color: current ? GOLD : reached ? CLAIM : FAINT,
+                        background: current ? "rgba(201,150,58,0.14)" : reached ? "rgba(34,211,238,0.08)" : "transparent",
+                      }}>
+                      {t}
+                    </span>
+                  );
+                })}
+              </div>
+              {ladderClaim.next
+                ? <p className="mt-1.5 text-[11px] leading-snug" style={{ color: PARCH }}>Next: <strong style={{ color: CREAM }}>{ladderClaim.next}</strong> — {ladderClaim.gap}.</p>
+                : <p className="mt-1.5 text-[11px] leading-snug" style={{ color: PARCH }}>The summit — there is no tier above this one.</p>}
+              <p className="text-[10.5px] leading-snug" style={{ color: FAINT }}>
+                {ladderClaim.region} · {ladderClaim.isRegionLeader ? "the largest power in its region" : ladderClaim.regionLeaderName ? `${ladderClaim.regionLeaderName} leads the region` : "no sovereign leader in its region"}{ladderClaim.faithLed ? " · its faith leads the world" : ""}
+              </p>
+            </div>
+          )}
+          <div className="mt-2">
+            <SphereRiskBlock rows={sphereRisk} onFocus={(idx) => onSelect(idx)} />
+          </div>
       {/* the hand of history: focus + rivals */}
       <div className="space-y-2.5 pb-1 pt-3">
         {focusIdx >= 0 ? (
@@ -1542,7 +1721,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
       {/* EXPORT tab — share kit; exports derive from this panel's history */}
       {sheetTab === "export" && (
         <div className="px-4 pb-4 pt-1">
-          <ExportPanel cfg={cfg} result={result} />
+          <ExportPanel cfg={cfg} result={result} claimIdx={claimIdx} />
         </div>
       )}
               </div>

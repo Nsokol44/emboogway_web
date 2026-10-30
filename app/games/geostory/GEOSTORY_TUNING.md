@@ -244,3 +244,105 @@ great power's orbit peacefully instead of only ever being conquered
 or ignored; momentum is invisible at giant scale by construction.
 Nothing else moves: annexation totals, top blocs and the religion
 track all sit at their pre-package values.
+
+## Improvement programme (2026-10-29) — causality, layer verbs, counterplay, victory ladder
+
+Built on branch `geostory-improvements` over master `3706da7`. Governing
+invariant: **a run with no interventions stays bit-identical to the
+pre-package engine.** Every engine hook below is a conditional that is
+inert when its modifier is inactive, and every diagnostic surface is
+attached non-enumerably so `JSON.stringify(run)` (the sim-check digest)
+never sees it. Empty-config digests recorded before the first engine
+edit and re-verified after: multipolar/stratatir-1 `53149b39…`,
+sandbox/base-0 `fac54e8e…`, lagos-5/NGA `0b61136e…`, takeover-1/PRI
+superpower `3b4db1d4…` — all unchanged. Dormant small-nation panel
+after the package: annex total 623 (band 450–700), top blocs within
+1.5× of pre-package, and only the three accepted target FAILs
+(PRI #1, PRI top-3, MDG #1).
+
+### Causality (why-data)
+
+`SimEvent.cause?: EventCause` is attached at event time for annex,
+fold and overtake events, from the engine's own terms at that moment:
+driver country, subject country, strain and effective stability at the
+flip, the siege power ratio vs the ratio the gate required, the fold
+partner's influencer streak and both bloc weights, and the momentum
+banked by the flip. It is defined with `Object.defineProperty`
+(non-enumerable), so digests, save files and share links are untouched;
+event text is unchanged. The chronicle and the notes feed render a
+one-line "Why: …" under each major event from these fields
+(`lib/why.ts`); ratios ≥ 100 print as "over 100×".
+
+`SimResult.diagnostics.risk` is a per-year, per-country risk track in
+the same non-enumerable style: the strain holder (presser) and strain
+level, the deemed fold partner and its streak, the live fold bloc
+ratio, guarantee/fortify expiries, and momentum years remaining
+(inverted from the 0.78/yr decay at the 0.1 display floor). The
+dossier RISK section and the "at risk in your sphere" rail block read
+only this track plus the year's snapshot — no re-simulation.
+
+### Layer verbs (interventions)
+
+Seven new levers join the existing five in the same points/windows/
+ledger system (`LEVERS`, costs in influence ⚑). All state is six
+neutral `CState` fields (calendar-year expiries, 0/−1 = inactive) plus
+a per-year streak-reset map consumed by the streak pass:
+
+| Lever | Cost | Target | Engine term |
+|---|---|---|---|
+| Fortify Border | 2 | country, 10 yrs | strain heals twice per year; annex gate ratio +0.6 (both the strain pre-pass floor and the flip check) |
+| Guarantee Independence | 2 | country, 15 yrs | fold loop skips the target entirely; strain gain halved |
+| Stabilise | 2 | country, one-off | stability +0.10 instantly (clamp 0.04–0.97); decays via the normal 5%/yr anchor reversion |
+| Counter-Influence | 1 | pair RIVAL>TARGET, one-off | the named rival's influencer streak on the target is set to 0 in the spend year (after that year's normal update, so it rebuilds from 0) |
+| Market Pact | 2 | pair CLAIM>TARGET, 15 yrs | market alignment ×1.5 both ways for the duration; both economies +0.35 growth/yr while active |
+| Mission | 1 | pair SOURCE>TARGET, 10 yrs | the source faith's conversion score into the target ×1.6 |
+| Pluralism Shield | 1 | country, 10 yrs | incoming faith pressure halved; the flip threshold ×1.5 |
+
+Share-link validation (`lib/share.ts`) accepts the new levers with
+country targets for fortify/guarantee/stabilise/pluralism and
+`AAA>BBB` pair targets for counter/pact/mission.
+`scripts/improvements-probe.ts` proves each verb against a crafted
+fixture (27 checks): DOM folds to PRI in 2042 unguarded and never
+folds in [2040, 2055) under a 2040 guarantee; a counter at 2042 lands
+the PRI streak on exactly 0 with the partnership intact; MOZ is
+annexed in 2046 unfortified and survives fortified with strain
+0.33 → 0.04; stabilise lifts next-year stability in 6/6 seeds; the
+pact lifts target GDP by 2045 in 4/4 seeds; mission pulls a faith
+flip seven years earlier and the shield holds a faith past its
+unshielded flip year.
+
+### Victory ladder (no engine changes)
+
+Computed from snapshots only (`lib/ladder.ts`), highest rung satisfied
+wins: **Fallen** (held by another power) · **Survivor** (sovereign at
+run end) · **Regional Power** (world top-25 OR largest bloc in its
+region) · **Regional Hegemon** (top-10 AND largest in region) ·
+**Continental Power** (top-5) · **World Power** (#1, or faith-#1
+while top-3). The claim dossier shows the current tier and the exact
+gap to the next rung; the end-of-century summary and the recap card
+record the final tier.
+
+Regions are a complete 16-region partition of all 175 countries
+(`lib/regions.ts`), seeded from the engine's crisis regions where they
+exist (Sahel verbatim; South Asia, Southeast Asia, Horn & East
+Africa, Southern Africa extended from the engine lists) and continent
+buckets elsewhere: North America · Central America & the Caribbean ·
+South America · Western & Northern Europe · Eastern Europe & the
+Caucasus · Middle East · North Africa · Central & West Africa ·
+Central Asia · East Asia · Oceania. The probe asserts the partition
+is exact (175 countries, no duplicates, none missing).
+
+### Export package
+
+The recap card gains: a before/after map pair (2026 vs final borders,
+side by side), the claim's rank-trajectory sparkline (rank by year,
+held years marked at the floor), the top-3 WHY moments (caused events
+scored by kind weight, then driver bloc), and the ladder tier chip.
+`chronicle.txt` (new download) carries the full chronicle with
+why-lines, the ladder line and the top WHY moments. The timelapse
+video export is unchanged. (The app has never had a GIF export; the
+"keep the GIF working" requirement maps to this video export.)
+Square-card note: the 1:1 layout measures its WHY rows against the
+fixed footer (H−100) and drops the last row (never below one) when
+the stack cannot fit — verified by eye on the rendered card; the
+9:16 card and chronicle.txt always carry all three.

@@ -11,9 +11,11 @@
 import { COUNTRIES, END_YEAR, START_YEAR, WORLD, fmtGdp } from "../lib/data";
 import type { SimConfig, SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
+import { finalLadder, rankByYear } from "../lib/ladder";
 import { getScenario, powerColor } from "../lib/scenarios";
 import { challengeUrl } from "../lib/share";
 import { WATERWAY_HEXES } from "../lib/terrain";
+import { eventWhy } from "../lib/why";
 import { COMPOUND_PATH, HEXES_BY_COUNTRY, countryFill } from "./WorldMap";
 
 export const GOLD = "#f0c060";
@@ -272,6 +274,17 @@ function kicker(ctx: CanvasRenderingContext2D, x: number, y: number, text: strin
 
 /* ------------------------------------------------------------- recap data */
 export interface RecapShock { year: number; text: string }
+export interface RecapWhy { year: number; text: string; why: string }
+/** the card's subject: the player's claim when there is one, else the
+ *  boosted focus power — its ladder tier and rank trajectory ride the card */
+export interface RecapSubject {
+  code: string;
+  name: string;
+  isClaim: boolean;
+  tier: string;
+  tierLine: string;
+  ranks: (number | null)[];
+}
 export interface RecapData {
   scenarioName: string;
   seed: string;
@@ -283,12 +296,19 @@ export interface RecapData {
   interventions: number;
   top5: { code: string; name: string; power: number }[];
   shocks: RecapShock[];
+  /** top-3 WHY moments: the highest-impact caused events, with their
+   *  engine why-lines (item 5c) */
+  whyMoments: RecapWhy[];
+  subject: RecapSubject | null;
   focusLine: string | null;
 }
 
 const KIND_PRIORITY: Record<string, number> = { overtake: 0, annex: 1, crisis: 2, shock: 3, breakaway: 4, focus: 5, intervention: 6 };
+const WHY_KIND_SCORE: Record<string, number> = { annex: 5, fold: 4, overtake: 5 };
 
-export function buildRecap(result: SimResult, cfg: SimConfig): RecapData {
+const trunc = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 3).trimEnd()}…` : t);
+
+export function buildRecap(result: SimResult, cfg: SimConfig, subjectCode?: string): RecapData {
   const last = result.years.length - 1;
   const leaders = result.leaders[last];
   const w = leaders[0];
@@ -297,7 +317,21 @@ export function buildRecap(result: SimResult, cfg: SimConfig): RecapData {
     .sort((a, b) => (KIND_PRIORITY[a.kind] - KIND_PRIORITY[b.kind]) || (b.year - a.year))
     .slice(0, 3)
     .sort((a, b) => a.year - b.year)
-    .map((e) => ({ year: e.year, text: e.text.length > 168 ? `${e.text.slice(0, 165).trimEnd()}…` : e.text }));
+    .map((e) => ({ year: e.year, text: trunc(e.text, 168) }));
+
+  /* WHY moments: caused events only (annex / fold / overtake), scored by
+     kind weight + the bloc mass involved, top 3, told chronologically */
+  const whyMoments: RecapWhy[] = result.events
+    .filter((e) => e.cause && eventWhy(e))
+    .map((e) => ({
+      e,
+      why: eventWhy(e)!,
+      score: (WHY_KIND_SCORE[e.kind] ?? 0) * 100000 + (e.cause!.driverBloc ?? 0) * 10 + (e.cause!.subjectBloc ?? 0),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .sort((a, b) => a.e.year - b.e.year)
+    .map(({ e, why }) => ({ year: e.year, text: trunc(e.text, 168), why }));
 
   let focusLine: string | null = null;
   if (cfg.focusCode) {
@@ -316,6 +350,29 @@ export function buildRecap(result: SimResult, cfg: SimConfig): RecapData {
     }
   }
 
+  /* the subject: claim first (what the player steered), else the focus */
+  let subject: RecapSubject | null = null;
+  const subjCode = subjectCode ?? cfg.focusCode;
+  if (subjCode) {
+    const si = COUNTRIES.findIndex((c) => c.code === subjCode);
+    if (si >= 0) {
+      const lad = finalLadder(result, si);
+      const snap = result.years[last][si];
+      const name = COUNTRIES[si].name;
+      const tierLine = lad.tier === "Fallen"
+        ? `${name} ended the century held by ${COUNTRIES[snap.c].name} — Fallen on the victory ladder.`
+        : `${name} finished as a ${lad.tier} — № ${lad.rank} in the world${lad.isRegionLeader ? `, the largest power in ${lad.region}` : `, in ${lad.region}`}${lad.faithLed ? ", its faith leading the world" : ""}.`;
+      subject = {
+        code: subjCode,
+        name,
+        isClaim: subjectCode !== undefined,
+        tier: lad.tier,
+        tierLine,
+        ranks: rankByYear(result, si),
+      };
+    }
+  }
+
   const worldGdp = result.years[last].reduce((s, c) => s + c.gdp, 0);
   const crowns = new Set(result.leaders.map((l) => l[0]?.code).filter(Boolean)).size;
   return {
@@ -327,6 +384,8 @@ export function buildRecap(result: SimResult, cfg: SimConfig): RecapData {
     interventions: cfg.interventions?.length ?? 0,
     top5: leaders.slice(0, 5).map((l) => ({ code: l.code, name: COUNTRIES[COUNTRIES.findIndex((c) => c.code === l.code)].name, power: l.power })),
     shocks,
+    whyMoments,
+    subject,
     focusLine,
   };
 }
@@ -347,12 +406,24 @@ export function flagEmoji(code3: string): string {
   return String.fromCodePoint(...[...a2].map((ch) => 127397 + ch.charCodeAt(0)));
 }
 
-export function buildCaption(result: SimResult, cfg: SimConfig): string {
+export function buildCaption(result: SimResult, cfg: SimConfig, subjectCode?: string): string {
   const last = result.years.length - 1;
   const leaders = result.leaders[last];
   const winner = leaders[0];
   const winnerName = COUNTRIES[COUNTRIES.findIndex((c) => c.code === winner.code)].name;
   const scenario = getScenario(cfg.scenarioId);
+  /* the subject's ladder verdict rides the caption (item 4) */
+  let ladderLine: string | null = null;
+  const subjCode = subjectCode ?? cfg.focusCode;
+  if (subjCode) {
+    const si = COUNTRIES.findIndex((c) => c.code === subjCode);
+    if (si >= 0) {
+      const lad = finalLadder(result, si);
+      ladderLine = lad.tier === "Fallen"
+        ? `Victory ladder: ${COUNTRIES[si].name} — Fallen, held at the century's end.`
+        : `Victory ladder: ${COUNTRIES[si].name} — ${lad.tier}${lad.rank ? ` (№ ${lad.rank} of 175)` : ""}.`;
+    }
+  }
   let hook: string;
   if (cfg.focusCode) {
     const fi = COUNTRIES.findIndex((c) => c.code === cfg.focusCode);
@@ -375,11 +446,45 @@ export function buildCaption(result: SimResult, cfg: SimConfig): string {
     hook,
     ``,
     `${scenario.name} · seed "${cfg.seed}"${invCount ? ` · ${invCount} intervention${invCount > 1 ? "s" : ""} spent` : ""} · the full deterministic century, 2026–2100, on a hex map of 175 countries.`,
+    ...(ladderLine ? [ladderLine] : []),
     `Replay this exact century — challenge link: ${challengeUrl(cfg)}`,
     `A toy model for entertainment — not a forecast.`,
     ``,
     `#GeoStory #Geopolitics #StrategyGame #WhatIf #AlternateHistory`,
   ].join("\n");
+}
+
+/** the full chronicle as a downloadable text file (item 5c): every event
+ *  of the century with the engine's why under the events that carry one,
+ *  the top-3 WHY moments up top, and the subject's ladder verdict */
+export function buildChronicleText(result: SimResult, cfg: SimConfig, subjectCode?: string): string {
+  const d = buildRecap(result, cfg, subjectCode);
+  const scenario = getScenario(cfg.scenarioId);
+  const out: string[] = [];
+  out.push(`GEOSTORY — THE CHRONICLE OF A CENTURY`);
+  out.push(`${scenario.name} · seed "${cfg.seed}" · ${START_YEAR}–${END_YEAR}`);
+  out.push(`№ 1 in ${END_YEAR}: ${d.winner.name} (power ${d.winner.power.toFixed(0)} · GDP ${fmtGdp(d.winner.gdp)} · ${d.winnerShare.toFixed(1)}% of world GDP)`);
+  if (d.subject) out.push(`Victory ladder: ${d.subject.tierLine}`);
+  if (d.interventions) out.push(`Interventions spent: ${d.interventions}`);
+  out.push(``);
+  if (d.whyMoments.length) {
+    out.push(`— THE MOMENTS THAT MADE THE CENTURY —`);
+    for (const m of d.whyMoments) {
+      out.push(`${m.year} — ${m.text}`);
+      out.push(`   ${m.why}`);
+    }
+    out.push(``);
+  }
+  out.push(`— THE CHRONICLE —`);
+  for (const e of result.events) {
+    out.push(`${e.year} — ${e.text}`);
+    const why = eventWhy(e);
+    if (why) out.push(`   ${why}`);
+  }
+  out.push(``);
+  out.push(`A toy model for entertainment — not a forecast.`);
+  out.push(`Replay this exact century: ${challengeUrl(cfg)}`);
+  return out.join("\n");
 }
 
 /* ------------------------------------------------------------- card canvas */
@@ -408,8 +513,156 @@ function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   );
 }
 
+/** the before/after pair (item 5b): two small plates side by side,
+ *  captioned. Returns the y of the plates' bottom edge. */
+function drawMapPair(
+  ctx: CanvasRenderingContext2D,
+  result: SimResult,
+  dx: number,
+  y: number,
+  plateW: number,
+  gap: number,
+): number {
+  const last = result.years.length - 1;
+  const plateH = (WORLD.height * plateW) / WORLD.width;
+  ctx.save();
+  ctx.font = `20px ${DISPLAY}`;
+  try { (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "3px"; } catch { /* older canvas */ }
+  ctx.fillStyle = MUTED;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(`${START_YEAR} — AS IT BEGAN`, dx + 2, y + 16);
+  ctx.fillStyle = GOLD;
+  ctx.textAlign = "right";
+  ctx.fillText(`${END_YEAR} — AS IT ENDED`, dx + plateW * 2 + gap - 2, y + 16);
+  ctx.restore();
+  drawMapPlate(ctx, result, 0, dx, y + 26, plateW);
+  drawMapPlate(ctx, result, last, dx + plateW + gap, y + 26, plateW);
+  return y + 26 + plateH;
+}
+
+/** rank-trajectory sparkline (item 5a): № 1 at the top; years the
+ *  subject was held show as red ticks along the floor */
+function drawRankSpark(
+  ctx: CanvasRenderingContext2D,
+  ranks: (number | null)[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const vals = ranks.filter((r): r is number => r !== null);
+  if (!vals.length) return;
+  const maxR = Math.max(10, ...vals);
+  const X = (i: number) => x + (i / (ranks.length - 1)) * w;
+  const Y = (r: number) => y + ((r - 1) / (maxR - 1)) * h;
+  ctx.save();
+  ctx.strokeStyle = "rgba(147,167,189,0.30)";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, Y(1)); ctx.lineTo(x + w, Y(1)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, Y(maxR)); ctx.lineTo(x + w, Y(maxR)); ctx.stroke();
+  ctx.fillStyle = MUTED;
+  ctx.font = `14px ${SANS}`;
+  ctx.textAlign = "right";
+  ctx.fillText(`№ ${maxR}`, x + w, y + h + 16);
+  ctx.textAlign = "left";
+  ctx.strokeStyle = "#22d3ee";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let pen = false;
+  ranks.forEach((r, i) => {
+    if (r === null) { pen = false; return; }
+    if (!pen) { ctx.moveTo(X(i), Y(r)); pen = true; } else ctx.lineTo(X(i), Y(r));
+  });
+  ctx.stroke();
+  ctx.fillStyle = "rgba(209,96,61,0.85)";
+  ranks.forEach((r, i) => { if (r === null) ctx.fillRect(X(i) - 1, y + h - 3, 2, 3); });
+  const li = ranks.length - 1;
+  if (ranks[li] !== null) {
+    ctx.fillStyle = CREAM;
+    ctx.beginPath();
+    ctx.arc(X(li), Y(ranks[li]!), 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** the subject block: ladder tier + rank sparkline (items 4/5a/5d).
+ *  Returns the y below the block. */
+function drawSubjectBlock(
+  ctx: CanvasRenderingContext2D,
+  s: RecapSubject,
+  x: number,
+  y: number,
+  w: number,
+  opts: { nameSize: number; sparkH: number; lineSize: number },
+): number {
+  ctx.save();
+  ctx.font = `${opts.nameSize}px ${DISPLAY}`;
+  try { (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "2px"; } catch { /* older canvas */ }
+  ctx.fillStyle = GOLD;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(trunc(`🏆 ${s.name} — ${s.tier}${s.isClaim ? " · YOUR ANCHOR" : ""}`.toUpperCase(), 72), x, y + opts.nameSize);
+  ctx.restore();
+  let cy = y + opts.nameSize + 10;
+  if (opts.lineSize > 0) {
+    ctx.fillStyle = PARCH;
+    ctx.font = `italic ${opts.lineSize}px ${SERIF}`;
+    const ls = wrapLines(ctx, s.tierLine, w, 2);
+    ls.forEach((ln, i) => ctx.fillText(ln, x, cy + opts.lineSize * 0.9 + i * (opts.lineSize + 5)));
+    cy += ls.length * (opts.lineSize + 5) + 8;
+  }
+  if (opts.sparkH > 0) {
+    drawRankSpark(ctx, s.ranks, x, cy, w, opts.sparkH);
+    return cy + opts.sparkH + 18;
+  }
+  return cy + 6;
+}
+
+/** WHY rows (item 5c): year, event text (≤2 lines), the engine's
+ *  why-line (1 line) — falls back to the biggest shocks when a run
+ *  somehow carries no caused events */
+function drawWhyRows(
+  ctx: CanvasRenderingContext2D,
+  d: RecapData,
+  x: number,
+  y: number,
+  w: number,
+  opts: { yearSize: number; textSize: number; textLH: number; whySize: number; gap: number },
+): number {
+  const rows: RecapWhy[] = d.whyMoments.length
+    ? d.whyMoments
+    : d.shocks.map((s) => ({ year: s.year, text: s.text, why: "" }));
+  let cy = y;
+  for (const m of rows) {
+    ctx.fillStyle = GOLD;
+    ctx.font = `${opts.yearSize}px ${DISPLAY}`;
+    ctx.textAlign = "left";
+    ctx.fillText(String(m.year), x, cy + opts.yearSize * 0.85);
+    const tx = x + 78;
+    const tw = w - 78;
+    ctx.fillStyle = PARCH;
+    ctx.font = `${opts.textSize}px ${SANS}`;
+    const ls = wrapLines(ctx, m.text, tw, 2);
+    ls.forEach((ln, i) => ctx.fillText(ln, tx, cy + opts.yearSize * 0.85 + i * opts.textLH));
+    let bottom = cy + opts.yearSize * 0.85 + (ls.length - 1) * opts.textLH;
+    if (m.why) {
+      ctx.fillStyle = "#a9cbe4";
+      ctx.font = `italic ${opts.whySize}px ${SERIF}`;
+      const wl = wrapLines(ctx, m.why, tw, 1);
+      let whyText = wl[0] ?? "";
+      if (whyText && m.why.length > whyText.length) whyText = `${whyText.replace(/[\s;,.]+$/, "")}…`;
+      bottom += opts.whySize + 6;
+      ctx.fillText(whyText, tx, bottom);
+    }
+    cy = bottom + opts.gap;
+  }
+  return cy;
+}
+
 /** static recap card — the whole century on one branded plate */
-export async function renderRecapCard(result: SimResult, cfg: SimConfig, format: "1:1" | "9:16"): Promise<Blob> {
+export async function renderRecapCard(result: SimResult, cfg: SimConfig, format: "1:1" | "9:16", subjectCode?: string): Promise<Blob> {
   await ensureFonts();
   const W = 1080;
   const H = format === "1:1" ? 1080 : 1920;
@@ -418,7 +671,7 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
   canvas.height = H;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no 2d context");
-  const d = buildRecap(result, cfg);
+  const d = buildRecap(result, cfg, subjectCode);
   const last = result.years.length - 1;
   const M = 64; // margin
   const CW = W - M * 2; // content width
@@ -440,6 +693,14 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
   cx += drawChip(ctx, cx, chipsY, `${START_YEAR} → ${END_YEAR}`, `20px ${SANS}`) + 12;
   if (d.crowns > 1) cx += drawChip(ctx, cx, chipsY, `👑 ${d.crowns} POWERS HELD № 1`, `20px ${SANS}`) + 12;
   if (d.interventions > 0) cx += drawChip(ctx, cx, chipsY, `⚑ ${d.interventions} INTERVENTION${d.interventions > 1 ? "S" : ""}`, `20px ${SANS}`) + 12;
+  /* the subject's ladder tier rides the chips row when it fits (item 5d) */
+  if (d.subject) {
+    const label = `🏆 ${d.subject.tier.toUpperCase()}`;
+    ctx.font = `20px ${SANS}`;
+    if (cx + ctx.measureText(label).width + 28 <= M + CW) {
+      cx += drawChip(ctx, cx, chipsY, label, `20px ${SANS}`) + 12;
+    }
+  }
   /* the square card's rail has no room for a share line, so it rides the
      chips row — but only when that row is short enough to hold it */
   if (format === "1:1" && d.crowns <= 1 && d.interventions === 0) {
@@ -447,70 +708,83 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
   }
 
   const mapY = chipsY + 62;
+  const whyTitle = d.whyMoments.length ? "WHY IT HAPPENED — THE MOMENTS THAT MADE IT" : "BIGGEST SHOCKS OF THE CENTURY";
   if (format === "1:1") {
-    /* map left, winner rail right */
-    const mapW = 618;
-    drawMapPlate(ctx, result, last, M, mapY, mapW);
-    const railX = M + mapW + 30;
-    const railW = W - M - railX;
-    let ry = mapY + 30;
-    kicker(ctx, railX, ry, "№ 1 IN 2100", 24);
-    ry += 14;
+    /* the square card is tight: the pair runs small and centred, the
+       winner and top five share one band, then the subject's ladder +
+       sparkline, then the WHY moments. On a two-line scenario title the
+       plates shrink and the sparkline yields (the tier still rides the
+       chips row and the subject label). */
+    const twoLineTitle = titleLines.length > 1;
+    const plateW = twoLineTitle ? 372 : 384;
+    const pairX = M + (CW - (plateW * 2 + 16)) / 2;
+    let y = drawMapPair(ctx, result, pairX, mapY - 26, plateW, 16);
+    /* winner (left) + top five (right) */
+    const bandY = y + 22;
+    kicker(ctx, M, bandY + 20, "№ 1 IN 2100", 22);
     ctx.fillStyle = CREAM;
-    ctx.font = `900 46px ${SERIF}`;
-    for (const ln of wrapLines(ctx, d.winner.name, railW, 2)) { ry += 47; ctx.fillText(ln, railX, ry); }
-    ry += 34;
+    ctx.font = `900 40px ${SERIF}`;
+    const nameLines = wrapLines(ctx, d.winner.name, 520, 2);
+    nameLines.forEach((ln, i) => ctx.fillText(ln, M, bandY + 64 + i * 42));
+    const statsY = bandY + 64 + nameLines.length * 42 + 8;
     ctx.fillStyle = GOLD;
-    ctx.font = `22px ${DISPLAY}`;
-    ctx.fillText(`POWER ${d.winner.power.toFixed(0)} · GDP ${fmtGdp(d.winner.gdp)}`, railX, ry);
-    ry += 26;
-    ctx.fillStyle = "rgba(201,150,58,0.4)";
-    ctx.fillRect(railX, ry, railW, 1);
-    ry += 40;
-    kicker(ctx, railX, ry, "TOP FIVE", 22);
+    ctx.font = `20px ${DISPLAY}`;
+    ctx.fillText(`POWER ${d.winner.power.toFixed(0)} · GDP ${fmtGdp(d.winner.gdp)} · ${d.winnerShare.toFixed(1)}% OF WORLD GDP`, M, statsY);
+    const rx = M + 566;
+    const rw = CW - 566;
+    kicker(ctx, rx, bandY + 20, "TOP FIVE", 22);
     d.top5.forEach((t, i) => {
-      const y = ry + 30 + i * 34;
+      const yy = bandY + 52 + i * 26;
       ctx.fillStyle = powerColor(t.code);
-      ctx.fillRect(railX, y - 13, 13, 13);
+      ctx.fillRect(rx, yy - 11, 11, 11);
       ctx.fillStyle = i === 0 ? GOLD : MUTED;
-      ctx.font = `22px ${DISPLAY}`;
-      ctx.fillText(String(i + 1).padStart(2, "0"), railX + 22, y);
+      ctx.font = `19px ${DISPLAY}`;
+      ctx.fillText(String(i + 1).padStart(2, "0"), rx + 19, yy);
       ctx.fillStyle = CREAM;
-      ctx.font = `20px ${SANS}`;
-      const name = t.name.length > 15 ? `${t.name.slice(0, 14)}…` : t.name;
-      ctx.fillText(name, railX + 54, y);
+      ctx.font = `17px ${SANS}`;
+      ctx.fillText(trunc(t.name, 16), rx + 46, yy);
       ctx.fillStyle = GOLD;
-      ctx.font = `20px ${DISPLAY}`;
+      ctx.font = `17px ${DISPLAY}`;
       ctx.textAlign = "right";
-      ctx.fillText(t.power.toFixed(0), railX + railW, y);
+      ctx.fillText(t.power.toFixed(0), rx + rw, yy);
       ctx.textAlign = "left";
     });
-
-    let sy = mapY + (WORLD.height * mapW) / WORLD.width + 44;
-    if (d.focusLine) {
+    y = Math.max(statsY + 6, bandY + 52 + 5 * 26) + 10;
+    ctx.fillStyle = "rgba(201,150,58,0.4)";
+    ctx.fillRect(M, y, CW, 1);
+    y += 18;
+    if (d.subject) {
+      y = drawSubjectBlock(ctx, d.subject, M, y, CW, { nameSize: 20, sparkH: twoLineTitle ? 0 : 26, lineSize: 0 }) + 2;
+    } else if (d.focusLine) {
       ctx.fillStyle = PARCH;
-      ctx.font = `italic 23px ${SERIF}`;
-      ctx.fillText(d.focusLine, M, sy);
-      sy += 40;
+      ctx.font = `italic 21px ${SERIF}`;
+      ctx.fillText(trunc(d.focusLine, 96), M, y + 20);
+      y += 42;
     }
-    kicker(ctx, M, sy, "BIGGEST SHOCKS OF THE CENTURY", 23);
-    sy += 12;
-    d.shocks.forEach((s) => {
-      ctx.fillStyle = GOLD;
-      ctx.font = `26px ${DISPLAY}`;
-      ctx.fillText(String(s.year), M, sy + 24);
-      ctx.fillStyle = PARCH;
-      ctx.font = `20px ${SANS}`;
-      const ls = wrapLines(ctx, s.text, CW - 76, 2);
-      ls.forEach((ln, i) => ctx.fillText(ln, M + 76, sy + 24 + i * 25));
-      sy += 24 + ls.length * 25 + 12;
-    });
+    kicker(ctx, M, y + 20, whyTitle, 20);
+    /* the square card's footer is fixed at H-100: measure the WHY rows
+       with the same wrap the drawer uses and drop the last row (never
+       below one) if the stack would reach the footer — the 9:16 card
+       and chronicle.txt always carry all three */
+    let whyData = d;
+    if (d.whyMoments.length > 1) {
+      const rowsTop = y + 30;
+      const est = (rows: RecapWhy[]) => rows.reduce((acc, m) => {
+        ctx.font = `18px ${SANS}`;
+        const lines = wrapLines(ctx, m.text, CW - 78, 2).length;
+        return acc + 23 * 0.85 + (lines - 1) * 19 + (m.why ? 15 + 6 : 0) + 7;
+      }, 0);
+      let rows = d.whyMoments;
+      while (rows.length > 1 && rowsTop + est(rows) > H - 104) rows = rows.slice(0, -1);
+      if (rows.length !== d.whyMoments.length) whyData = { ...d, whyMoments: rows };
+    }
+    drawWhyRows(ctx, whyData, M, y + 30, CW, { yearSize: 23, textSize: 18, textLH: 19, whySize: 15, gap: 7 });
   } else {
-    /* 9:16 — generous vertical rhythm, budgeted so the shocks never
-       reach the fixed footer (checked against a 3-shock, 2-line worst case) */
-    const mapW = CW;
-    drawMapPlate(ctx, result, last, M, mapY, mapW);
-    let y = mapY + (WORLD.height * mapW) / WORLD.width + 58;
+    /* 9:16 — the pair replaces the single plate (and frees more room
+       than it takes); winner, focus, subject ladder + sparkline, top
+       five, then the WHY moments above the fixed footer */
+    let y = drawMapPair(ctx, result, M, mapY - 26, (CW - 16) / 2, 16);
+    y += 58;
     ctx.textAlign = "center";
     ctx.save();
     ctx.font = `26px ${DISPLAY}`;
@@ -535,6 +809,9 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
       ctx.fillText(d.focusLine, W / 2, y);
       ctx.textAlign = "left";
       y += 58;
+    }
+    if (d.subject) {
+      y = drawSubjectBlock(ctx, d.subject, M, y, CW, { nameSize: 25, sparkH: 44, lineSize: 23 }) + 6;
     }
     ctx.fillStyle = "rgba(201,150,58,0.4)";
     ctx.fillRect(M, y, CW, 1);
@@ -561,18 +838,9 @@ export async function renderRecapCard(result: SimResult, cfg: SimConfig, format:
     ctx.fillStyle = "rgba(201,150,58,0.4)";
     ctx.fillRect(M, y, CW, 1);
     y += 44;
-    kicker(ctx, M, y, "BIGGEST SHOCKS OF THE CENTURY", 25);
+    kicker(ctx, M, y, whyTitle, 25);
     y += 10;
-    d.shocks.forEach((s) => {
-      ctx.fillStyle = GOLD;
-      ctx.font = `32px ${DISPLAY}`;
-      ctx.fillText(String(s.year), M, y + 26);
-      ctx.fillStyle = PARCH;
-      ctx.font = `24px ${SANS}`;
-      const ls = wrapLines(ctx, s.text, CW - 92, 2);
-      ls.forEach((ln, i) => ctx.fillText(ln, M + 92, y + 26 + i * 27));
-      y += 26 + ls.length * 27 + 12;
-    });
+    drawWhyRows(ctx, d, M, y, CW, { yearSize: 30, textSize: 23, textLH: 26, whySize: 21, gap: 11 });
   }
 
   /* footer — small print on every card */

@@ -7,10 +7,11 @@
  * Files are named for the run so they drop straight into a posting flow.
  */
 import { useEffect, useRef, useState } from "react";
+import { COUNTRIES } from "../lib/data";
 import type { SimConfig, SimResult } from "../lib/engine";
 import { challengeUrl } from "../lib/share";
 import {
-  buildCaption, copyText, downloadBlob, recordTimelapse, renderRecapCard,
+  buildCaption, buildChronicleText, copyText, downloadBlob, recordTimelapse, renderRecapCard,
   slugify, videoExportSupported, type TimelapseFormat,
 } from "./exportKit";
 
@@ -22,7 +23,9 @@ const GOLD_DEEP = "#c9963a";
 
 type Fmt = TimelapseFormat | "1:1";
 
-export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: SimResult }) {
+export default function ExportPanel({ cfg, result, claimIdx = null }: { cfg: SimConfig; result: SimResult; claimIdx?: number | null }) {
+  /* the export subject: the player's claim when this panel holds one */
+  const subjectCode = claimIdx !== null ? COUNTRIES[claimIdx]?.code : undefined;
   const [format, setFormat] = useState<Fmt>("9:16");
   const [busy, setBusy] = useState<null | "video" | "card">(null);
   const [progress, setProgress] = useState(0);
@@ -64,9 +67,9 @@ export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: S
     setBusy("card");
     setNote(null);
     try {
-      const blob = await renderRecapCard(result, cfg, format === "1:1" ? "1:1" : "9:16");
+      const blob = await renderRecapCard(result, cfg, format === "1:1" ? "1:1" : "9:16", subjectCode);
       downloadBlob(blob, `${base}-recap-${format === "1:1" ? "1x1" : "9x16"}.png`);
-      setNote("Recap card saved — winner, top five and the century's biggest shocks.");
+      setNote("Recap card saved — before/after maps, winner, top five, the ladder and the moments that made the century.");
     } catch {
       setNote("Card rendering failed in this browser.");
     }
@@ -83,8 +86,13 @@ export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: S
     }
   };
 
+  const doChronicle = () => {
+    downloadBlob(new Blob([buildChronicleText(result, cfg, subjectCode)], { type: "text/plain;charset=utf-8" }), `${base}-chronicle.txt`);
+    setNote("Chronicle saved — every event of the century, with the engine's why under the big ones.");
+  };
+
   const doCaption = async () => {
-    const ok = await copyText(buildCaption(result, cfg));
+    const ok = await copyText(buildCaption(result, cfg, subjectCode));
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
@@ -135,6 +143,11 @@ export default function ExportPanel({ cfg, result }: { cfg: SimConfig; result: S
           style={{ borderColor: "rgba(240,192,96,0.5)", color: GOLD }}
           aria-label="Download a recap card image of this run">
           {busy === "card" ? "RENDERING…" : "🗺 RECAP CARD PNG"}
+        </button>
+        <button onClick={doChronicle} className={ghost}
+          style={{ borderColor: "rgba(147,167,189,0.4)", color: CREAM }}
+          aria-label="Download the full chronicle of this run as a text file, with why-lines">
+          📜 CHRONICLE .TXT
         </button>
         <button onClick={doCaption} className={ghost}
           style={{ borderColor: "rgba(147,167,189,0.4)", color: CREAM }}

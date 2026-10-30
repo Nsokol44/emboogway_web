@@ -58,16 +58,34 @@ export const DEFAULT_DECK: DeckControls = { chokepoints: true, climate: true, pa
  *  run config so the run reproduces exactly (and can be shared as a link).
  *  target: country code (tech/stability), "AAA>BBB" toward / "AAA!BBB" away
  *  (trade), strait id (chokepoint), region key (crisis). */
-export type LeverId = "tech" | "trade" | "chokepoint" | "crisis" | "stability";
+export type LeverId = "tech" | "trade" | "chokepoint" | "crisis" | "stability"
+  | "fortify" | "guarantee" | "stabilise" | "counter" | "pact" | "mission" | "pluralism";
 export interface Intervention { year: number; lever: LeverId; target: string; cost: number }
 export const INFLUENCE_POOL = 6;
-export const LEVERS: { id: LeverId; name: string; cost: number; blurb: string; target: "country" | "trade" | "strait" | "region" }[] = [
+export const LEVERS: { id: LeverId; name: string; cost: number; blurb: string; target: "country" | "pair" | "trade" | "strait" | "region" }[] = [
   { id: "tech", name: "Accelerate Tech", cost: 2, blurb: "+tech momentum for one power, 10 years", target: "country" },
   { id: "trade", name: "Trade Realignment", cost: 2, blurb: "tilt one market toward / away from another power, 15 years", target: "trade" },
   { id: "chokepoint", name: "Invest in a Chokepoint", cost: 1, blurb: "harden one strait — closures bite 65% less, 20 years", target: "strait" },
   { id: "crisis", name: "Trigger Regional Crisis", cost: 1, blurb: "a bounded instability shock across one region", target: "region" },
   { id: "stability", name: "Shore Up Stability", cost: 1, blurb: "a stability floor under one power, 10 years", target: "country" },
+  /* Layer verbs (improvements item 2): one verb per map layer, plus the
+   * fold-in counterplay family (item 3). Pair targets read "AAA>BBB":
+   * counter = "the power whose streak is wiped>the target"; pact =
+   * "partner>partner" (symmetric); mission = "source faith power>target". */
+  { id: "fortify", name: "Fortify Border", cost: 2, blurb: "strain drains twice as fast and besiegers need a wider power gap for 10 years", target: "country" },
+  { id: "guarantee", name: "Guarantee Independence", cost: 2, blurb: "cannot fold into any orbit for 15 years; siege strain builds at half rate", target: "country" },
+  { id: "stabilise", name: "Stabilise", cost: 2, blurb: "a one-off +0.10 stability, right now — capped, and it fades back toward the anchor", target: "country" },
+  { id: "counter", name: "Counter-Influence", cost: 1, blurb: "wipe one power's fold streak over a target back to zero — the five-year clock restarts", target: "pair" },
+  { id: "pact", name: "Market Pact", cost: 2, blurb: "trade gravity between two countries up for 15 years; both economies grow a little faster", target: "pair" },
+  { id: "mission", name: "Mission", cost: 1, blurb: "the first country's faith presses into the second for 10 years", target: "pair" },
+  { id: "pluralism", name: "Pluralism Shield", cost: 1, blurb: "faith flips are resisted for 10 years — pressure builds at half rate and must reach half again as much", target: "country" },
 ];
+/** How long each lever's effect runs, in years (0 = instant). Display +
+ *  "still working" bookkeeping; the engine's own terms are authoritative. */
+export const LEVER_YEARS: Record<LeverId, number> = {
+  tech: 10, trade: 15, chokepoint: 20, crisis: 0, stability: 10,
+  fortify: 10, guarantee: 15, stabilise: 0, counter: 0, pact: 15, mission: 10, pluralism: 10,
+};
 /** P4a — starting world modifiers (ids; display metadata lives in scenarios.ts). */
 export const MODIFIER_IDS = ["china-slow", "europe-rearm", "andes-lithium", "hormuz-perma", "sahel-dry"] as const;
 
@@ -190,6 +208,26 @@ export interface SimEvent {
   year: number;
   kind: EventKind;
   text: string;
+  /** Structured cause (improvements item 1a) — attached NON-ENUMERABLY at
+   *  push time, so it is readable as `event.cause` in-process but invisible
+   *  to JSON.stringify: the legacy run digest stays bit-identical. */
+  cause?: EventCause;
+}
+
+/** Why an annexation, fold-in or overtake happened — the engine's own
+ *  terms at the moment of the event, captured read-only (no arithmetic
+ *  changes when nobody intervenes). */
+export interface EventCause {
+  driver: number;        // country idx principally responsible (besieger / streak holder / new № 1)
+  subject: number;       // country idx the event happened to (target / displaced № 1 / entrant)
+  strain?: number;       // annex: target strain at the flip (0–0.45)
+  stability?: number;    // annex: effective stability (stab − strain); fold: raw stability
+  streak?: number;       // fold: consecutive years `driver` was the dominant partner
+  ratio?: number;        // annex: the siege ratio that cleared the gate; overtake: new ÷ old № 1 bloc
+  ratioNeeded?: number;  // annex: the gate bar the ratio had to clear
+  momentum?: number;     // driver's banked growth points just after the award
+  driverBloc?: number;   // bloc power at the event, rounded
+  subjectBloc?: number;
 }
 
 /** P1b — per-country, per-year attribution, computed from the engine's real
@@ -206,12 +244,33 @@ export interface AttribSnap {
   sh: number; // net shock delta applied to growth this year (points)
 }
 
+/** Per-country, per-year risk track (improvements item 1b): who is
+ *  besieging this country and how deep the grind is; who its dominant
+ *  fold-in partner is and how long the streak has run; whether the
+ *  player's own verb windows cover it; and how much momentum it banks.
+ *  Computed read-only from live state at snapshot time. */
+export interface RiskSnap {
+  presser: number;    // besieging power idx (strain holder), -1 = no active siege
+  strain: number;     // 0–0.45, 3dp — effective stability is stab − strain
+  partner: number;    // deemed dominant partner (fold streak holder), -1 = none / self
+  streak: number;     // consecutive years under `partner`
+  foldRatio: number;  // partner bloc ÷ own bloc, 1dp (0 = n/a)
+  guarUntil: number;  // calendar year the independence guarantee lapses (0 = none)
+  fortUntil: number;  // calendar year fortification lapses (0 = none)
+  momYears: number;   // ≈ years of momentum left at the current bank (0 = none)
+  momGrow: number;    // banked growth points, 1dp
+}
+export interface SimDiagnostics { risk: RiskSnap[][] } // [yearIdx][countryIdx]
+
 export interface SimResult {
   years: CountrySnap[][]; // [yearIdx][countryIdx]
   events: SimEvent[];
   leaders: { code: string; power: number }[][]; // top 10 per year
   attrib: AttribSnap[][]; // [yearIdx][countryIdx], parallel to years
   faithLeaders: FaithStanding[][]; // religion standings per year, largest first
+  /** Risk/diagnostics track — attached NON-ENUMERABLY (see EventCause):
+   *  present in-process, absent from the serialised digest. */
+  diagnostics?: SimDiagnostics;
 }
 
 const N = COUNTRIES.length;
@@ -219,7 +278,7 @@ const YEARS = END_YEAR - START_YEAR + 1;
 const ADJ: number[][] = COUNTRIES.map((c) => c.adj.map((a) => CODE_IDX.get(a)!).filter((x) => x !== undefined));
 const IS_AFRICA = COUNTRIES.map((c) => c.lon >= -18 && c.lon <= 43 && c.lat >= -35 && c.lat <= 31);
 
-const REGIONS: Record<string, string[]> = {
+export const REGIONS: Record<string, string[]> = {
   sahel: ["MRT", "MLI", "BFA", "NER", "NGA", "TCD", "SDN", "SEN"],
   southasia: ["IND", "PAK", "BGD", "NPL", "LKA", "AFG"],
   horn: ["ETH", "SOM", "KEN", "SSD", "ERI", "DJI", "UGA"],
@@ -249,6 +308,14 @@ interface CState {
   techPush: number; techPushUntil: number;
   alignTo: number; alignMult: number; alignUntil: number;
   stabMin: number; stabMinUntil: number;
+  /* layer-verb state (improvements items 2–3) — calendar-year expiries,
+     all neutral (0 / -1) unless the matching intervention was spent */
+  fortUntil: number;   // Fortify Border: strain heals double, annex gate +0.6
+  guarUntil: number;   // Guarantee Independence: cannot fold, strain gain halved
+  pactUntil: number;   // Market Pact: +0.35 growth while active (align carries the gravity)
+  missionFrom: number; // Mission: source country whose faith presses here (-1 = none)
+  missionUntil: number;
+  shieldUntil: number; // Pluralism Shield: faith pressure halved, flip bar ×1.5
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -366,6 +433,8 @@ export function runSimulation(cfg: SimConfig): SimResult {
       techPush: 0, techPushUntil: 0,
       alignTo: -1, alignMult: 1, alignUntil: 0,
       stabMin: -1, stabMinUntil: 0,
+      fortUntil: 0, guarUntil: 0, pactUntil: 0,
+      missionFrom: -1, missionUntil: 0, shieldUntil: 0,
     };
   });
   const applyBoostMap = (map: Record<string, { growth?: number; tech?: number; resources?: number; minerals?: number; milMult?: number }>) => {
@@ -438,6 +507,12 @@ export function runSimulation(cfg: SimConfig): SimResult {
   /** chokepoint hardening from interventions: strait id → year it lapses */
   const hardenUntil: Record<string, number> = {};
   const name = (i: number) => COUNTRIES[i].name;
+  /** attach a structured cause to an event without touching its
+   *  serialised shape (non-enumerable — the run digest never sees it) */
+  const withCause = (e: SimEvent, cause: EventCause): SimEvent => {
+    Object.defineProperty(e, "cause", { value: cause, enumerable: false });
+    return e;
+  };
   let prevTop: string[] = [];
   let focusBestRank = 999;
   const lastAnnexYear = new Map<number, number>();
@@ -445,6 +520,11 @@ export function runSimulation(cfg: SimConfig): SimResult {
   const inflStreakWho = new Int32Array(N).fill(-1);
   const inflStreakYears = new Int32Array(N).fill(0);
   const lastFoldYear = new Map<number, number>();
+  /* Counter-Influence: target idx → the power whose streak is wiped when
+     this year's fold bookkeeping runs (one-shot; set by applyIntervention) */
+  const streakReset = new Map<number, number>();
+  /** per-year risk/diagnostics track (item 1b) — read-only captures */
+  const riskYears: RiskSnap[][] = [];
   /* previous-year derived arrays, kept so the year-0 snapshot can be the
    * pristine opening state while later snapshots reuse the computed values */
   let lastMil: number[] = [];
@@ -581,6 +661,44 @@ export function runSimulation(cfg: SimConfig): SimResult {
         st[i].stab = clamp(st[i].stab - 0.05, 0.04, 0.97);
       }
       events.push({ year, kind: "intervention", text: `⚑ Regional crisis in ${REGION_LABELS[inv.target] ?? inv.target} — unrest spills across borders and every neighbour pays.` });
+    } else if (inv.lever === "fortify" || inv.lever === "guarantee" || inv.lever === "stabilise" || inv.lever === "pluralism") {
+      const i = CODE_IDX.get(inv.target);
+      if (i === undefined) return;
+      if (inv.lever === "fortify") {
+        st[i].fortUntil = year + LEVER_YEARS.fortify;
+        events.push({ year, kind: "intervention", text: `⚑ Border fortified — ${name(i)}'s frontier digs in for a decade: siege strain drains twice as fast here, and any besieger must hold a wider power gap to bite.` });
+      } else if (inv.lever === "guarantee") {
+        st[i].guarUntil = year + LEVER_YEARS.guarantee;
+        events.push({ year, kind: "intervention", text: `⚑ Independence guaranteed — ${name(i)} cannot fold into any orbit for fifteen years, and siege strain builds on it at half rate.` });
+      } else if (inv.lever === "stabilise") {
+        // one-off, capped, and it decays: stability mean-reverts to the
+        // country's anchor at 5%/yr, so the bump is a reprieve, not a fix
+        st[i].stab = clamp(st[i].stab + 0.10, 0.04, 0.97);
+        events.push({ year, kind: "intervention", text: `⚑ Stabilisation — ${name(i)}'s institutions are underwritten in a crisis package: stability jumps now, then fades back toward its anchor as usual.` });
+      } else {
+        st[i].shieldUntil = year + LEVER_YEARS.pluralism;
+        events.push({ year, kind: "intervention", text: `⚑ Pluralism shield — ${name(i)}'s faiths organise a common defence: conversion pressure here builds at half rate for a decade, and a flip must clear a bar half again as high.` });
+      }
+    } else if (inv.lever === "counter" || inv.lever === "pact" || inv.lever === "mission") {
+      const [a, b] = inv.target.split(">");
+      const ia = CODE_IDX.get(a), ib = CODE_IDX.get(b);
+      if (ia === undefined || ib === undefined || ia === ib) return;
+      if (inv.lever === "counter") {
+        // consumed by this year's fold bookkeeping (see the streak loop):
+        // the named power's streak over the target restarts from zero
+        streakReset.set(ib, ia);
+        events.push({ year, kind: "intervention", text: `⚑ Counter-influence — ${name(ia)}'s patient courtship of ${name(ib)} is exposed and undone: its fold streak resets to zero and the five-year clock starts over.` });
+      } else if (inv.lever === "pact") {
+        // gravity both ways through the existing alignment channel, plus
+        // a small growth dividend on both sides while the pact runs
+        st[ia].alignTo = ib; st[ia].alignMult = 1.5; st[ia].alignUntil = year + LEVER_YEARS.pact;
+        st[ib].alignTo = ia; st[ib].alignMult = 1.5; st[ib].alignUntil = year + LEVER_YEARS.pact;
+        st[ia].pactUntil = year + LEVER_YEARS.pact; st[ib].pactUntil = year + LEVER_YEARS.pact;
+        events.push({ year, kind: "intervention", text: `⚑ Market pact — ${name(ia)} and ${name(ib)} bind their markets for fifteen years: trade gravity rises both ways and both economies hum a little faster.` });
+      } else {
+        st[ib].missionFrom = ia; st[ib].missionUntil = year + LEVER_YEARS.mission;
+        events.push({ year, kind: "intervention", text: `⚑ Mission — ${name(ia)}'s faith sends its teachers, clinics and schools into ${name(ib)} for a decade of patient pressure.` });
+      }
     }
   };
 
@@ -657,6 +775,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
         const convergence = Math.min(2.2, Math.max(0, gdppcK - 3) * 0.035);
         let g = base.growth + s.growthAdd + (s.tech - 55) * 0.012 + resScore * 0.9 -
           (1 - s.stab) * 2.2 + s.growthMod - convergence + rng.range(-0.7, 0.7) + s.mom;
+        if (year < s.pactUntil) g += 0.35; // Market Pact: both partners hum a little faster
         if (s.ctrl !== i) g -= 0.7; // extraction drag on held territory
         if (pandemic) { g -= 1.6; yrShock[i] -= 1.6; }
         if (s.stab < 0.2) g -= 1.8; // state failure trap
@@ -743,6 +862,10 @@ export function runSimulation(cfg: SimConfig): SimResult {
         }
         if (who === inflStreakWho[c]) inflStreakYears[c]++;
         else { inflStreakWho[c] = who; inflStreakYears[c] = 1; }
+        /* Counter-Influence lands here: the named power's streak over
+           this country is wiped to zero and the clock restarts */
+        const rk = streakReset.get(c);
+        if (rk !== undefined) { if (who === rk) inflStreakYears[c] = 0; streakReset.delete(c); }
       }
 
       /* ---- territorial change: influence + a wide gap + adjacency + deep
@@ -768,7 +891,8 @@ export function runSimulation(cfg: SimConfig): SimResult {
           const ratio = blocPow[p] / (blocPow[ctrl0] * 0.55 + pow[c0] * 0.8 + 1);
           if (ratio > bR) { bR = ratio; bP = p; }
         }
-        const needed0 = (ctrl0 === c0 && (rankOf.get(c0) ?? 99) <= 5) ? 3.2 : BASELINE[COUNTRIES[c0].code].major ? 2.6 : 1.9;
+        const needed0Base = (ctrl0 === c0 && (rankOf.get(c0) ?? 99) <= 5) ? 3.2 : BASELINE[COUNTRIES[c0].code].major ? 2.6 : 1.9;
+        const needed0 = year < st[c0].fortUntil ? needed0Base + 0.6 : needed0Base; // a fortified frontier starts the grind later too
         const floor = needed0 - STRAIN_FLOOR_MARGIN;
         ratio0[c0] = bR; floor0[c0] = floor;
         const digesting0 = bP >= 0 && year - (lastAnnexYear.get(bP) ?? -99) < 3;
@@ -790,7 +914,8 @@ export function runSimulation(cfg: SimConfig): SimResult {
         // majors and top-5 homelands are far harder to swallow than minor states
         const isMajor = BASELINE[COUNTRIES[c].code].major;
         const protectedCore = ctrl === c && (rankOf.get(c) ?? 99) <= 5;
-        const ratioNeeded = protectedCore ? 3.2 : isMajor ? 2.6 : 1.9;
+        const ratioNeededBase = protectedCore ? 3.2 : isMajor ? 2.6 : 1.9;
+        const ratioNeeded = year < st[c].fortUntil ? ratioNeededBase + 0.6 : ratioNeededBase; // fortified frontier: a wider gap to bite
         const digesting = bestP >= 0 && year - (lastAnnexYear.get(bestP) ?? -99) < 3; // empires need time to digest
         /* sustained pressure accumulates as strain (see tuning constants),
            judged on the start-of-year pre-pass: strain HEALS a little
@@ -801,6 +926,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
            state down to the gate */
         const presser = presser0[c];
         st[c].strain *= 1 - STRAIN_HEAL;
+        if (year < st[c].fortUntil) st[c].strain *= 1 - STRAIN_HEAL; // fortified: the grind drains twice as fast
         if (presser >= 0) {
           if (st[c].strainFrom !== presser) {
             st[c].strain *= STRAIN_INHERIT; st[c].strainFrom = presser;
@@ -815,8 +941,9 @@ export function runSimulation(cfg: SimConfig): SimResult {
              pressure is shrugged off, entrenched pressure cracks
              institutions progressively */
           const excess = Math.max(0, ratio0[c] - Math.max(floor0[c], st[c].siegeBase));
-          const gain = Math.min(STRAIN_GAIN_CAP, STRAIN_RATE * Math.pow(excess, 0.7)) *
+          const gainRaw = Math.min(STRAIN_GAIN_CAP, STRAIN_RATE * Math.pow(excess, 0.7)) *
             (1 + st[c].strain) / Math.max(1, activeSieges.get(presser) ?? 1);
+          const gain = year < st[c].guarUntil ? gainRaw * 0.5 : gainRaw; // guaranteed: pressure builds at half rate
           st[c].strain = Math.min(STRAIN_MAX, st[c].strain + gain);
         } else if (st[c].strain < 0.005) { st[c].strain = 0; st[c].strainFrom = -1; st[c].siegeBase = 0; }
         const effStab = st[c].stab - st[c].strain;
@@ -837,12 +964,24 @@ export function runSimulation(cfg: SimConfig): SimResult {
           st[c].pressure += (bestRatio - ratioNeeded) * (0.55 - effStab) * 0.95 * (1 + 6 * st[c].strain);
           if (effStab < 0.50 && st[c].pressure > 7) {
             const old = ctrl;
+            /* the why, captured from the gate's own terms before the flip
+               resets them (item 1a — read-only, no arithmetic) */
+            const cause: EventCause = {
+              driver: bestP, subject: c,
+              strain: Math.round(st[c].strain * 1000) / 1000,
+              stability: Math.round(effStab * 1000) / 1000,
+              ratio: Math.round(bestRatio * 100) / 100,
+              ratioNeeded,
+              driverBloc: Math.round(blocPow[bestP]),
+              subjectBloc: Math.round(blocPow[c] > 0 ? blocPow[c] : pow[c]),
+            };
             st[c].ctrl = bestP; st[c].pressure = 0; st[c].pressureFrom = -1; st[c].yearsCtrl = 0;
             st[c].strain = 0; st[c].strainFrom = -1; st[c].siegeBase = 0;
             lastAnnexYear.set(bestP, year);
             awardMomentum(bestP);
             st[c].stab = clamp(st[c].stab - 0.07, 0.04, 0.97); st[c].growthMod -= 1.1; yrShock[c] -= 1.1;
-            events.push({ year, kind: "annex", text: `${name(bestP)} takes control of ${name(c)} — years of influence, a wide power gap and local instability finally flip the border${old !== c ? ` (from ${name(old)})` : ""}.` });
+            events.push(withCause({ year, kind: "annex", text: `${name(bestP)} takes control of ${name(c)} — years of influence, a wide power gap and local instability finally flip the border${old !== c ? ` (from ${name(old)})` : ""}.` },
+              { ...cause, momentum: Math.round(st[bestP].mom * 10) / 10 }));
           }
         } else {
           st[c].pressure *= 0.8;
@@ -867,6 +1006,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
          sovereign (clients fold nobody) and observes a cooldown. */
       for (let c = 0; c < N; c++) {
         if (st[c].ctrl !== c) continue;
+        if (year < st[c].guarUntil) continue; // an independence guarantee holds the door shut
         const a = inflStreakWho[c];
         if (a < 0 || a === c || st[a].ctrl !== a) continue;
         if (inflStreakYears[c] < FOLD_STREAK_YEARS) continue;
@@ -885,17 +1025,34 @@ export function runSimulation(cfg: SimConfig): SimResult {
         st[c].strain = 0; st[c].strainFrom = -1; st[c].siegeBase = 0;
         lastFoldYear.set(a, year);
         awardMomentum(a);
-        events.push({ year, kind: "fold", text: `${name(c)} folds into ${name(a)}'s orbit — ${FOLD_STREAK_YEARS} years as its closest partner, a wobbling state and a wide power gap end with a client flag, not a war.` });
+        events.push(withCause({ year, kind: "fold", text: `${name(c)} folds into ${name(a)}'s orbit — ${FOLD_STREAK_YEARS} years as its closest partner, a wobbling state and a wide power gap end with a client flag, not a war.` }, {
+          driver: a, subject: c,
+          stability: Math.round(st[c].stab * 1000) / 1000,
+          streak: inflStreakYears[c],
+          ratio: Math.round((blocPow[a] / Math.max(blocPow[c], 0.001)) * 100) / 100,
+          momentum: Math.round(st[a].mom * 10) / 10,
+          driverBloc: Math.round(blocPow[a]),
+          subjectBloc: Math.round(blocPow[c]),
+        }));
       }
 
       /* ---- overtakes & focus milestones ---- */
       const topCodes = sovereigns.slice(0, 5).map((i) => COUNTRIES[i].code);
       if (prevTop.length && topCodes[0] !== prevTop[0]) {
-        events.push({ year, kind: "overtake", text: `${name(CODE_IDX.get(topCodes[0])!)} overtakes ${name(CODE_IDX.get(prevTop[0])!)} to become the world's #1 power.` });
+        const ni = CODE_IDX.get(topCodes[0])!, oi = CODE_IDX.get(prevTop[0])!;
+        events.push(withCause({ year, kind: "overtake", text: `${name(ni)} overtakes ${name(oi)} to become the world's #1 power.` }, {
+          driver: ni, subject: oi,
+          ratio: Math.round((blocPow[ni] / Math.max(blocPow[oi], 0.001)) * 100) / 100,
+          driverBloc: Math.round(blocPow[ni]),
+          subjectBloc: Math.round(blocPow[oi]),
+        }));
       }
       for (let r = 0; r < Math.min(3, topCodes.length); r++) {
         if (!prevTop.slice(0, 3).includes(topCodes[r]) && prevTop.length) {
-          events.push({ year, kind: "overtake", text: `${name(CODE_IDX.get(topCodes[r])!)} breaks into the top 3 world powers.` });
+          const ei = CODE_IDX.get(topCodes[r])!;
+          events.push(withCause({ year, kind: "overtake", text: `${name(ei)} breaks into the top 3 world powers.` }, {
+            driver: ei, subject: ei, driverBloc: Math.round(blocPow[ei]),
+          }));
         }
       }
       if (focusIdx !== undefined) {
@@ -953,6 +1110,12 @@ export function runSimulation(cfg: SimConfig): SimResult {
           // A small nation's religious identity is NOT proportionally
           // weaker than a giant's — the defence has a per-country base
           scores[inc] += Math.pow(st[c].pop * FAITH_SHARE[c], T.radiationExponent) * 1.2 + T.homeBase * FAITH_SHARE[c];
+          /* a Mission at work: the source country's faith scores harder
+             here for a decade — the incumbent's own defence is untouched */
+          if (year < st[c].missionUntil && st[c].missionFrom >= 0) {
+            const mf = faithDom[st[c].missionFrom];
+            if (mf >= 0 && mf !== inc) scores[mf] *= 1.6;
+          }
           for (let f = 0; f < FAITH_COUNT; f++) faithPress[c][f] *= T.pressureDecay;
           let best = -1, bestScore = 0;
           for (let f = 0; f < FAITH_COUNT; f++) {
@@ -960,7 +1123,8 @@ export function runSimulation(cfg: SimConfig): SimResult {
           }
           const incScore = scores[inc];
           if (best >= 0 && bestScore > incScore && incScore > 0) {
-            faithPress[c][best] += Math.min((bestScore / incScore - 1) * T.pressureRate, T.pressureCap);
+            const add = Math.min((bestScore / incScore - 1) * T.pressureRate, T.pressureCap);
+            faithPress[c][best] += year < st[c].shieldUntil ? add * 0.5 : add; // Pluralism Shield: pressure builds at half rate
           }
           /* conversion channel: if the country's top influencer is a
              genuinely dominant power of another faith — and that faith
@@ -971,7 +1135,8 @@ export function runSimulation(cfg: SimConfig): SimResult {
           if (p !== c && faithDom[p] !== inc && scores[faithDom[p]] >= T.conversionPresence * incScore) {
             const r = blocPow[p] / (pow[c] + 1);
             if (r > T.conversionThreshold) {
-              faithPress[c][faithDom[p]] += Math.min(r - T.conversionThreshold, T.conversionCapRatio) * T.conversionRate;
+              const add = Math.min(r - T.conversionThreshold, T.conversionCapRatio) * T.conversionRate;
+              faithPress[c][faithDom[p]] += year < st[c].shieldUntil ? add * 0.5 : add;
             }
           }
           /* flip check: highest accumulated pressure wins the country */
@@ -979,7 +1144,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
           for (let f = 0; f < FAITH_COUNT; f++) {
             if (f !== inc && faithPress[c][f] > flipPress) { flipPress = faithPress[c][f]; flipTo = f; }
           }
-          if (flipTo >= 0 && flipPress > T.flipPressure && year - faithLastFlip[c] >= T.flipCooldownYears) {
+          if (flipTo >= 0 && flipPress > T.flipPressure * (year < st[c].shieldUntil ? 1.5 : 1) && year - faithLastFlip[c] >= T.flipCooldownYears) {
             const old = inc;
             faithDom[c] = flipTo;
             faithPress[c].fill(0);
@@ -1044,7 +1209,25 @@ export function runSimulation(cfg: SimConfig): SimResult {
       tg: Math.round((maxTechNow - s.tech) * 10) / 10,
       sh: Math.round(yrShock[i] * 100) / 100,
     })));
+    /* risk track (item 1b): read-only captures of the live siege, fold
+       streak, verb windows and momentum, parallel to this snapshot */
+    riskYears.push(st.map((s, i) => {
+      const partner = s.ctrl === i && inflStreakWho[i] !== i ? inflStreakWho[i] : -1;
+      return {
+        presser: s.strain > 0.004 && s.strainFrom >= 0 ? s.strainFrom : -1,
+        strain: Math.round(s.strain * 1000) / 1000,
+        partner,
+        streak: partner >= 0 ? inflStreakYears[i] : 0,
+        foldRatio: partner >= 0 && blocNow[i] > 0 ? Math.round((blocNow[partner] / blocNow[i]) * 10) / 10 : 0,
+        guarUntil: s.guarUntil,
+        fortUntil: s.fortUntil,
+        momYears: s.mom > 0.1 ? Math.max(1, Math.ceil(Math.log(0.1 / s.mom) / Math.log(MOM_DECAY))) : 0,
+        momGrow: Math.round(s.mom * 10) / 10,
+      };
+    }));
   }
 
-  return { years, events, leaders, attrib, faithLeaders };
+  const result: SimResult = { years, events, leaders, attrib, faithLeaders };
+  Object.defineProperty(result, "diagnostics", { value: { risk: riskYears } satisfies SimDiagnostics, enumerable: false });
+  return result;
 }

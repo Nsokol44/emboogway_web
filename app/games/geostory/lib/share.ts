@@ -70,7 +70,12 @@ export function decodeRun(param: string): SimConfig | null {
     if (mods.length) cfg.modifiers = mods;
     const invs = canonicalInterventions(Array.isArray(o.interventions) ? (o.interventions as never[]) : undefined)
       .filter((v) => {
-        if (v.lever === "tech" || v.lever === "stability") return CODE_IDX.has(v.target);
+        if (v.lever === "tech" || v.lever === "stability" || v.lever === "fortify" || v.lever === "guarantee" || v.lever === "stabilise" || v.lever === "pluralism") return CODE_IDX.has(v.target);
+        if (v.lever === "counter" || v.lever === "pact" || v.lever === "mission") {
+          // pair verbs: "AAA>BBB" between two real, different countries
+          const [a, b] = v.target.split(">");
+          return a !== b && CODE_IDX.has(a) && CODE_IDX.has(b);
+        }
         if (v.lever === "chokepoint") return STRAITS.some((s) => s.id === v.target);
         if (v.lever === "crisis") return CRISIS_REGIONS.some((r) => r.key === v.target);
         // trade: "AAA>BBB" / "AAA!BBB" between two real, different countries
