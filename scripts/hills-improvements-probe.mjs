@@ -1,6 +1,8 @@
 /* Hills probe harness — the original v1 assertions plus the 2026-10-29
-   improvement programme (monster states, zones, quirks, seeds, traces,
-   perks, difficulty, second exit, end-screen reporting).
+   improvement programme (monster states, zones, quirks, seeds, perks,
+   difficulty, second exit, end-screen reporting) and the 2026-10-30
+   lore removal: the Traces/lore system is Godot/Steam-only, so its
+   ABSENCE from the web build is asserted here, not assumed.
    Run against a dev server on :3100:
      node scripts/hills-improvements-probe.mjs
    Captures land in ~/workspace/.scratch-gs/hills/. */
@@ -265,18 +267,29 @@ async function noiseWithPerk(perkId, actions) {
   ok("iron tools clear the fallen tree", cleared);
 }
 
-/* ═══════════ F. TRACES + PERSISTENCE + ZONES ═══════════ */
+/* ═══════════ F. ZONES + LORE ABSENCE ═══════════ */
 {
   const { ctx, page } = await newPage({ width: 1280, height: 800 });
   await page.goto(`${GAME}?seed=trace-seed`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1800);
-  await skipGuide(page);
+  const skip = page.getByRole("button", { name: /skip/i });
+  if ((await skip.count()) >= 1) { await skip.first().click(); await page.waitForTimeout(400); }
+  const titleText = await page.evaluate(() => document.body.innerText);
+  ok("title has NO traces journal/control", !/TRACES — WHAT THE HILLS REMEMBER/.test(titleText) && !/of 8 found/.test(titleText));
+  ok("perks formula = banked + 100 per escape, no trace term", /XP = banked escape value \+ 100 per escape\. Pick one active perk\./.test(titleText) && !/per Trace/.test(titleText), (titleText.match(/XP = [^\n]*/) ?? [""])[0]);
+  await page.screenshot({ path: `${OUT}/n4-title-setup.png` });
+  await page.getByRole("button", { name: "START THE RUN" }).first().click();
+  await page.waitForTimeout(700);
+  // the surveyor's old spot (-24, -8): walk it — nothing collects, nothing toasts.
+  // Kept quick on purpose: a monster spawn sits ~22 units off this spot and an
+  // idle player gets run down in ~3 s (measured), which would end the run and
+  // freeze the zone readouts the next checks rely on.
   await page.evaluate(() => window.__hills.teleport(-24, -8));
-  await waitState(page, () => window.__hills?.debugState().tracesFound.includes("surveyor"), 30000);
+  await page.waitForTimeout(600);
   let st = await state(page);
-  ok("surveyor trace collected on walk-over", st?.tracesFound?.includes("surveyor"), JSON.stringify(st?.tracesFound));
-  ok("trace toast shows", await waitText(page, /Trace — The Surveyor’s Line/, 20000));
-  await page.screenshot({ path: `${OUT}/n2-trace-toast.png` });
+  ok("debugState carries no trace fields", !!st && !("tracesFound" in st) && !("latestTrace" in st), st ? Object.keys(st).join(",") : "no state");
+  ok("no trace toast at the old surveyor spot", !(await page.evaluate(() => /Trace — /.test(document.body.innerText))));
+  await page.screenshot({ path: `${OUT}/n2-old-trace-spot.png` });
   await page.evaluate(() => window.__hills.teleport(38, 20));
   await waitState(page, () => window.__hills?.debugState().zone === "ridge", 30000);
   st = await state(page);
@@ -286,13 +299,26 @@ async function noiseWithPerk(perkId, actions) {
   await waitState(page, () => window.__hills?.debugState().zone === "creek", 30000);
   st = await state(page);
   ok("creek zone reads CREEK", st?.zone === "creek", `zone=${st?.zone}`);
-  await page.reload({ waitUntil: "networkidle" });
+  await ctx.close();
+}
+
+/* ═══════════ F2. OLD SAVE (retired field present) → XP RECOMPUTED ═══════════ */
+{
+  const init = {
+    fn: () => {
+      localStorage.setItem("wwlith-progress-v2", JSON.stringify({ banked: 500, escapes: 2, runs: 4, best: 300, traces: ["surveyor", "deserter", "wintering", "mother", "teamster", "ginseng", "lantern-man", "preacher"] }));
+      localStorage.setItem("wwlith-best-v1", JSON.stringify({ best: 300, escapes: 2, runs: 4 }));
+    },
+  };
+  const { ctx, page } = await newPage({ width: 1280, height: 800 }, init);
+  await page.goto(GAME, { waitUntil: "networkidle" });
   await page.waitForTimeout(1800);
-  const prog = await page.evaluate(() => localStorage.getItem("wwlith-progress-v2"));
-  ok("trace persists in localStorage", !!prog && JSON.parse(prog).traces.includes("surveyor"), prog ?? "");
+  const skip = page.getByRole("button", { name: /skip/i });
+  if ((await skip.count()) >= 1) { await skip.first().click(); await page.waitForTimeout(400); }
   const titleText = await page.evaluate(() => document.body.innerText);
-  ok("title journal counts the trace", /\d of 8 found/.test(titleText), titleText.match(/\d of 8 found/)?.[0] ?? "");
-  await page.screenshot({ path: `${OUT}/n4-title-setup.png` });
+  ok("old save loads, XP recomputed banked+escapes only (500 + 2×100 = 700)", /PERKS — LEVEL 3 · 700 XP/.test(titleText), (titleText.match(/PERKS — LEVEL \d · \d+ XP/) ?? ["none"])[0]);
+  ok("old save: best/escapes/runs still shown", /Best haul \$300 · 2 escapes in 4 runs/.test(titleText));
+  ok("old save: no traces control either", !/TRACES — WHAT THE HILLS REMEMBER/.test(titleText));
   await ctx.close();
 }
 
@@ -339,7 +365,7 @@ async function runWithDifficulty(difficulty) {
   let text = await page.evaluate(() => document.body.innerText);
   ok("end screen names the County Road exit", /Out by the County Road/.test(text));
   ok("end screen reports loudest moment", /YOUR LOUDEST MOMENT/.test(text) && /metre ring of noise/.test(text));
-  ok("end screen counts traces", /WHAT THE HILLS REMEMBER — \d OF 8/.test(text));
+  ok("end screen has NO lore section", !/WHAT THE HILLS REMEMBER/.test(text) && !/No new traces this run/.test(text));
   await page.screenshot({ path: `${OUT}/n5-end-loudest.png` });
 
   // rail tunnel escape

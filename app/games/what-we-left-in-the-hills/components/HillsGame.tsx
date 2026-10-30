@@ -6,7 +6,7 @@
    this file owns everything a player reads. */
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { HillsEngine, TRACES, type HudSnapshot } from "../lib/engine";
+import { HillsEngine, type HudSnapshot } from "../lib/engine";
 import { DIFFICULTIES, PERKS, levelForXp, perkById, xpForProgress, type DifficultyId, type PerkId } from "../lib/progression";
 
 const GUIDE_KEY = "wwlith-guide-v1";
@@ -27,14 +27,23 @@ interface Progress {
   escapes: number;
   runs: number;
   best: number;
-  traces: string[];
 }
 function loadProgress(): Progress {
   const base = loadBest();
-  const out: Progress = { banked: 0, escapes: base.escapes, runs: base.runs, best: base.best, traces: [] };
+  const out: Progress = { banked: 0, escapes: base.escapes, runs: base.runs, best: base.best };
   try {
     const raw = localStorage.getItem(PROGRESS_KEY);
-    if (raw) return { ...out, ...(JSON.parse(raw) as Progress) };
+    if (raw) {
+      // Field-by-field on purpose: older saves may carry a retired field,
+      // which is dropped here; banked value, escapes, runs and best survive.
+      const stored = JSON.parse(raw) as Partial<Progress>;
+      return {
+        banked: typeof stored.banked === "number" ? stored.banked : out.banked,
+        escapes: typeof stored.escapes === "number" ? stored.escapes : out.escapes,
+        runs: typeof stored.runs === "number" ? stored.runs : out.runs,
+        best: typeof stored.best === "number" ? stored.best : out.best,
+      };
+    }
   } catch {
     /* ignore */
   }
@@ -102,11 +111,10 @@ export default function HillsGame() {
   const [cinema, setCinema] = useState(false);
   const [packOpen, setPackOpen] = useState(false);
   const [best, setBest] = useState<Best>({ best: 0, escapes: 0, runs: 0 });
-  const [progress, setProgress] = useState<Progress>({ banked: 0, escapes: 0, runs: 0, best: 0, traces: [] });
+  const [progress, setProgress] = useState<Progress>({ banked: 0, escapes: 0, runs: 0, best: 0 });
   const [settings, setSettings] = useState<Settings>({ difficulty: "standard", perkId: null, reducedHallucinations: false, soundIndicator: true });
   const [seed, setSeed] = useState("daily");
   const [paused, setPaused] = useState(false);
-  const [journalOpen, setJournalOpen] = useState(false);
   const recordedOutcome = useRef<object | null>(null);
 
   useEffect(() => {
@@ -149,7 +157,6 @@ export default function HillsGame() {
         escapes: prev.escapes + (hud.outcome!.kind === "escaped" ? 1 : 0),
         runs: prev.runs + 1,
         best: Math.max(prev.best, hud.outcome!.value),
-        traces: [...new Set([...prev.traces, ...hud.outcome!.tracesFound])],
       };
       try {
         localStorage.setItem(PROGRESS_KEY, JSON.stringify(next));
@@ -173,23 +180,7 @@ export default function HillsGame() {
     });
   }, [hud]);
 
-  /* traces found mid-run join the lifetime journal at once */
-  useEffect(() => {
-    if (!hud || hud.tracesFound.length === 0) return;
-    setProgress((prev) => {
-      const merged = [...new Set([...prev.traces, ...hud.tracesFound])];
-      if (merged.length === prev.traces.length) return prev;
-      const next = { ...prev, traces: merged };
-      try {
-        localStorage.setItem(PROGRESS_KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, [hud]);
-
-  const xp = xpForProgress(progress.banked, progress.escapes, progress.traces.length);
+  const xp = xpForProgress(progress.banked, progress.escapes);
   const level = levelForXp(xp);
   const chosenPerk = perkById(settings.perkId);
   const effectivePerk: PerkId | null = chosenPerk && level >= chosenPerk.level ? chosenPerk.id : null;
@@ -203,10 +194,9 @@ export default function HillsGame() {
       perkId: effectivePerk,
       reducedHallucinations: settings.reducedHallucinations,
       soundIndicator: settings.soundIndicator,
-      knownTraceIds: progress.traces,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, seed, settings.difficulty, effectivePerk, settings.reducedHallucinations, settings.soundIndicator, progress.traces.join(",")]);
+  }, [mounted, seed, settings.difficulty, effectivePerk, settings.reducedHallucinations, settings.soundIndicator]);
 
   useEffect(() => {
     try {
@@ -363,13 +353,6 @@ export default function HillsGame() {
                 <span className="text-[9px] font-bold uppercase tracking-[0.25em] text-white/70">sound</span>
               </div>
             )}
-            {hud.latestTrace && performance.now() - hud.latestTrace.at < 6000 && (
-              <div className="pointer-events-none absolute left-1/2 top-[18.3rem] w-full max-w-md -translate-x-1/2 px-4 text-center sm:top-[17.3rem]">
-                <span className="rounded-lg border px-3 py-2 font-serif text-sm italic" style={{ borderColor: "rgba(240,192,96,0.5)", background: "rgba(20,16,6,0.78)", color: GOLD }}>
-                  Trace — {hud.latestTrace.title}: {hud.latestTrace.short}
-                </span>
-              </div>
-            )}
             {statusFresh && (
               <div className="pointer-events-none absolute left-1/2 top-[16.1rem] w-full max-w-md -translate-x-1/2 px-4 text-center sm:top-[14.9rem]">
                 <span className="rounded bg-black/55 px-3 py-1 text-xs font-semibold tracking-wide" style={{ color: MOON }}>
@@ -501,7 +484,7 @@ export default function HillsGame() {
               {!guideSeen && <span className="text-white/45">(the guide opens first time)</span>}
             </div>
 
-            {/* ── run setup: seed, difficulty, one perk, comfort, traces ── */}
+            {/* ── run setup: seed, difficulty, one perk, comfort ── */}
             <div className="mx-auto mt-6 max-h-[46dvh] w-[min(94vw,44rem)] overflow-y-auto rounded-2xl border border-white/15 bg-[#0d120d]/92 p-4 text-left shadow-2xl backdrop-blur-sm">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="font-display text-xs tracking-[0.3em]" style={{ color: MOON }}>RUN SETUP</span>
@@ -528,7 +511,7 @@ export default function HillsGame() {
 
               <div className="mt-4 flex flex-wrap items-baseline justify-between gap-2 border-t border-white/10 pt-3">
                 <span className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD }}>PERKS — LEVEL {level} · {xp} XP</span>
-                <span className="text-[11px] text-white/55">XP = banked escape value + 100 per escape + 25 per Trace found. Pick one active perk.</span>
+                <span className="text-[11px] text-white/55">XP = banked escape value + 100 per escape. Pick one active perk.</span>
               </div>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <button
@@ -583,37 +566,6 @@ export default function HillsGame() {
                   <span className="block text-sm font-semibold">Reduced hallucinations: {settings.reducedHallucinations ? "ON" : "OFF"}</span>
                   <span className="block text-[11px] text-white/60">Phantoms and false growls come much less often in thick fog.</span>
                 </button>
-              </div>
-
-              <div className="mt-3 border-t border-white/10 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setJournalOpen((o) => !o)}
-                  className="flex min-h-[48px] w-full items-center justify-between rounded-lg border border-white/18 px-3 py-2 text-left"
-                  aria-expanded={journalOpen}
-                >
-                  <span className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD }}>TRACES — WHAT THE HILLS REMEMBER</span>
-                  <span className="text-xs text-white/65">{progress.traces.length} of {TRACES.length} found {journalOpen ? "▲" : "▼"}</span>
-                </button>
-                {journalOpen && (
-                  <div className="mt-2 space-y-3">
-                    {TRACES.map((t) => {
-                      const found = progress.traces.includes(t.id);
-                      return (
-                        <article key={t.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                          <h3 className="font-serif text-base font-bold" style={{ color: found ? CREAM : "rgba(255,255,255,0.4)" }}>
-                            {found ? t.title : "An unfound trace"}
-                          </h3>
-                          {found ? (
-                            <p className="mt-1 text-sm leading-relaxed text-[#e8dcc3]">{t.text}</p>
-                          ) : (
-                            <p className="mt-1 text-sm italic text-white/40">Somewhere in the holler. Walk over it to learn who it belonged to.</p>
-                          )}
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -684,7 +636,7 @@ export default function HillsGame() {
 
       {/* ── end screen ───────────────────────────────────── */}
       {phase === "ended" && hud?.outcome && (
-        <EndScreen hud={hud} best={best} totalTraces={progress.traces.length} onAgain={startRun} onTitle={() => engineRef.current?.backToTitle()} />
+        <EndScreen hud={hud} best={best} onAgain={startRun} onTitle={() => engineRef.current?.backToTitle()} />
       )}
     </div>
   );
@@ -856,7 +808,7 @@ function Joystick({ onMove }: { onMove: (x: number, y: number) => void }) {
 }
 
 /* ── end screen ──────────────────────────────────────────────────── */
-function EndScreen({ hud, best, totalTraces, onAgain, onTitle }: { hud: HudSnapshot; best: Best; totalTraces: number; onAgain: () => void; onTitle: () => void }) {
+function EndScreen({ hud, best, onAgain, onTitle }: { hud: HudSnapshot; best: Best; onAgain: () => void; onTitle: () => void }) {
   const o = hud.outcome!;
   const droppedOnly = o.leftBehind.filter((l) => !o.carried.some((c) => c.name === l.name));
   const mins = Math.floor(o.secondsUsed / 60);
@@ -948,26 +900,6 @@ function EndScreen({ hud, best, totalTraces, onAgain, onTitle }: { hud: HudSnaps
             <p className="mt-1 text-sm leading-relaxed text-[#e8dcc3]">{o.loudestMoment}</p>
           </div>
         )}
-        <div className="mt-5">
-          <div className="mb-1 font-display text-xs tracking-[0.3em]" style={{ color: GOLD }}>
-            WHAT THE HILLS REMEMBER — {totalTraces} OF {TRACES.length}
-          </div>
-          {o.tracesFound.length === 0 ? (
-            <p className="text-sm italic text-white/55">No new traces this run. Their stories are still out there.</p>
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {o.tracesFound.map((id) => {
-                const t = TRACES.find((x) => x.id === id);
-                return t ? (
-                  <li key={id}>
-                    <span className="text-[#efe6cf]">{t.title}</span> <span className="text-white/50">— {t.short}</span>
-                  </li>
-                ) : null;
-              })}
-            </ul>
-          )}
-        </div>
-
         <div className="mt-5 border-t border-white/10 pt-3 text-xs text-white/55">
           Best haul ${best.best} · {best.escapes} escape{best.escapes === 1 ? "" : "s"} in {best.runs} run{best.runs === 1 ? "" : "s"} (this device) · Press R to run again
         </div>

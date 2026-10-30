@@ -99,58 +99,6 @@ function terrainSlope(x: number, z: number): number {
   return Math.hypot(dx, dz) / (2 * e);
 }
 
-/* ── Traces: the dead left these behind ─────────────────────────────── */
-export interface TraceDef {
-  id: string;
-  title: string;
-  short: string;
-  text: string;
-  x: number;
-  z: number;
-}
-export const TRACES: TraceDef[] = [
-  {
-    id: "surveyor", title: "The Surveyor’s Line", x: -24, z: -8,
-    short: "A brass-capped stone, still holding a line nobody finished.",
-    text: "In 1785 Elias Wren chained a boundary west from the settlements, blazing trees as he went. The line stops in this holler, though every blaze after it is fresher than the one before. On foggy mornings, walkers say the measuring never quite stopped — it only learned to walk slower.",
-  },
-  {
-    id: "deserter", title: "The Deserter’s Camp", x: -10.5, z: -35,
-    short: "A cold fire ring under the creek bank, hidden from both armies.",
-    text: "Nathaniel Rook left his regiment in the winter of 1863 and hid where the creek bends, afraid of the road home and the road west in equal measure. He carved NO ARMY OWNS THIS GROUND into a sycamore. The carving is at knee height now. The thing that passes here walks much taller.",
-  },
-  {
-    id: "wintering", title: "The Wintering", x: -2.5, z: -73,
-    short: "A child’s shoe in the homestead ashes, too small for the grave outside.",
-    text: "Miriam Hale’s wagon broke in the first snow of 1849, too late to turn back and too early to cross. Her family wintered in this house on meal, bark tea, and hope measured in spoonfuls. The county record says the road took them in spring. It does not say what came down from the ridge wearing their patience.",
-  },
-  {
-    id: "mother", title: "The Mother’s Road", x: 34, z: 14,
-    short: "Two sets of stones mark rests along the ridge — one large, one small.",
-    text: "Sarah Linn carried her daughter over this ridge in 1817 after fever took their horse, resting wherever the stones are still piled. She made the far side alone, neighbours insisted, though her footprints home were doubled all the way. Some loads, the mountains decide to carry for you. Some they decide to keep.",
-  },
-  {
-    id: "teamster", title: "The Teamster’s Bell", x: -29.1, z: 38,
-    short: "A mule bell, green with age, tangled in the fallen tree’s roots.",
-    text: "Henry Saylor’s team bellied down in the mud here in 1832 and would not rise. He cut the traces, rang the lead mule’s bell three times for help, and waited with his back to this tree. Teamsters still swear a bell answers on still nights — always three rings, always a little too far uphill.",
-  },
-  {
-    id: "ginseng", title: "The Ginseng Hunter", x: -14.1, z: 58,
-    short: "A digging stick worn smooth, beside roots older than the man who sought them.",
-    text: "Amos Keene knew every ’sang patch between the creeks and never took the mother root — his rule, and the reason the patches lived. In 1901 he broke it for a root shaped, the buyers said, almost like a man. The buyers got their root. The patch got Amos, in the slow way patches keep things.",
-  },
-  {
-    id: "lantern-man", title: "The Lantern-Man", x: 33.8, z: 94,
-    short: "A red globe, uncracked, set carefully on the tunnel stones.",
-    text: "Thomas Brier walked the rail cut with a red lantern, checking for washouts before the night freight. In the flood year he signalled a train down in time and was himself taken by the water under the ridge. Conductors still report a red light at this tunnel — and slow, though no rule tells them to.",
-  },
-  {
-    id: "preacher", title: "The Preacher’s Shrine", x: 9.2, z: 92,
-    short: "River stones in a rough circle where the road bends toward daylight.",
-    text: "Obadiah Cross preached to westbound families at this bend, warning that the mountains taxed every soul exactly what it refused to set down. He followed one wagon train as far as this shrine and no farther, by his own journal. The last entry is not in his hand: THE TOLL IS THE TRAVELLER.",
-  },
-];
-
 /* ── shared types with the React shell ──────────────────────────────── */
 export type Phase = "idle" | "playing" | "ended";
 export type OutcomeKind = "escaped" | "caught" | "nightfall";
@@ -164,7 +112,6 @@ export interface RunConfig {
   perkId: PerkId | null;
   reducedHallucinations: boolean;
   soundIndicator: boolean;
-  knownTraceIds: string[];
 }
 export const DEFAULT_RUN_CONFIG: RunConfig = {
   seed: "standard-run",
@@ -172,7 +119,6 @@ export const DEFAULT_RUN_CONFIG: RunConfig = {
   perkId: null,
   reducedHallucinations: false,
   soundIndicator: true,
-  knownTraceIds: [],
 };
 export const ROUTE_EVENT_LINES: Record<RouteEventId, string> = {
   "fallen-tree": "A fallen tree blocks the ridge shortcut.",
@@ -201,7 +147,6 @@ export interface Outcome {
   gaveAway: string | null;
   loudestMoment: string;
   peakNoise: number;
-  tracesFound: string[];
   routeEvent: RouteEventId;
   seed: string;
 }
@@ -234,8 +179,6 @@ export interface HudSnapshot {
   fallenTreeActive: boolean;
   nearFallenTree: boolean;
   lanternLit: boolean;
-  tracesFound: string[];
-  latestTrace: { id: string; title: string; short: string; at: number } | null;
   monsterState: MonsterState;
   soundLevel: number;
   soundBearingDeg: number | null;
@@ -362,9 +305,6 @@ export class HillsEngine {
   private shortcutCleared = false;
   private fallenTreeGroup: THREE.Group | null = null;
   private routeSignGroup: THREE.Group | null = null;
-  private traceMeshes = new Map<string, THREE.Group>();
-  private tracesFoundRun = new Set<string>();
-  private latestTrace: { id: string; title: string; short: string; at: number } | null = null;
   private peakNoise = 0;
   private loudestMoment = "You never made a sound worth remembering.";
   private lastDetectionText: string | null = null;
@@ -513,7 +453,6 @@ export class HillsEngine {
     this.buildHomestead();
     this.buildExit();
     this.buildRailTunnel();
-    this.buildTraces();
     this.buildPlayer();
     this.buildMonsters();
     this.buildPhantoms();
@@ -736,31 +675,6 @@ export class HillsEngine {
     grp.add(post);
     grp.position.set(x, y, z);
     this.scene.add(grp);
-  }
-
-  private buildTraces() {
-    for (const t of TRACES) {
-      const grp = new THREE.Group();
-      const stone = new THREE.Mesh(
-        new THREE.BoxGeometry(0.55, 0.8, 0.18),
-        new THREE.MeshStandardMaterial({ color: 0x8b887c, roughness: 1 })
-      );
-      stone.position.y = 0.4;
-      stone.castShadow = true;
-      grp.add(stone);
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.72, 0.86, 28),
-        new THREE.MeshBasicMaterial({ color: 0xf0c060, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.06;
-      ring.name = "trace-ring";
-      grp.add(ring);
-      grp.position.set(t.x, terrainHeight(t.x, t.z), t.z);
-      grp.rotation.y = Math.atan2(pathX(t.z) - t.x, 0.001);
-      this.scene.add(grp);
-      this.traceMeshes.set(t.id, grp);
-    }
   }
 
   private buildExit() {
@@ -997,7 +911,7 @@ export class HillsEngine {
   }
 
   configureRun(config: Partial<RunConfig>) {
-    this.runConfig = { ...this.runConfig, ...config, knownTraceIds: config.knownTraceIds ?? this.runConfig.knownTraceIds };
+    this.runConfig = { ...this.runConfig, ...config };
     if (this.phase === "idle") this.resetRun(false);
   }
 
@@ -1167,7 +1081,6 @@ export class HillsEngine {
       difficulty: this.runConfig.difficulty,
       perk: this.runConfig.perkId,
       lootLayout: this.lootLayout,
-      tracesFound: [...this.tracesFoundRun],
       wrapped: [...this.wrappedUids],
       lanternLit: this.lanternLit,
       shortcutCleared: this.shortcutCleared,
@@ -1232,8 +1145,6 @@ export class HillsEngine {
     this.lanternLit = false;
     this.shortcutCleared = false;
     this.activeDecoy = null;
-    this.tracesFoundRun.clear();
-    this.latestTrace = null;
     this.peakNoise = 0;
     this.loudestMoment = "You never made a sound worth remembering.";
     this.lastDetectionText = null;
@@ -1283,16 +1194,6 @@ export class HillsEngine {
     this.caption = "";
     this.statusLine = start ? ROUTE_EVENT_LINES[this.routeEvent] : "";
     this.statusAt = performance.now();
-    for (const t of TRACES) {
-      const grp = this.traceMeshes.get(t.id);
-      if (!grp) continue;
-      const known = this.runConfig.knownTraceIds.includes(t.id);
-      grp.traverse((o) => {
-        if (o instanceof THREE.Mesh && o.name === "trace-ring") {
-          (o.material as THREE.MeshBasicMaterial).opacity = known ? 0.1 : 0.5;
-        }
-      });
-    }
     this.buildRouteFeatures();
     this.updatePackVisual();
     this.emitHud();
@@ -1409,22 +1310,6 @@ export class HillsEngine {
             ? `Your noise gave you away ${zoneWords}: ${this.gait === "hustle" ? "hustling" : "walking"} with ${weight} kg made a ${this.noiseRadius.toFixed(1)}-metre ring.`
             : text ?? cause;
     this.lastDetectionText = base;
-  }
-
-  private collectTraces() {
-    for (const t of TRACES) {
-      if (this.tracesFoundRun.has(t.id) || this.runConfig.knownTraceIds.includes(t.id)) continue;
-      if (Math.hypot(this.playerPos.x - t.x, this.playerPos.z - t.z) > 1.8) continue;
-      this.tracesFoundRun.add(t.id);
-      this.latestTrace = { id: t.id, title: t.title, short: t.short, at: performance.now() };
-      const grp = this.traceMeshes.get(t.id);
-      grp?.traverse((o) => {
-        if (o instanceof THREE.Mesh && o.name === "trace-ring") (o.material as THREE.MeshBasicMaterial).opacity = 0.1;
-      });
-      this.audio.tick();
-      this.setStatus(`Trace found — ${t.title}. ${t.short}`);
-      this.emitHud();
-    }
   }
 
   private trySecondWind(mon: Monster): boolean {
@@ -1690,7 +1575,6 @@ export class HillsEngine {
       }
     }
 
-    this.collectTraces();
     this.stepMonsters(dt, noise);
     this.stepHallucinations(dt);
 
@@ -2016,7 +1900,6 @@ export class HillsEngine {
       gaveAway: kind === "caught" ? this.lastDetectionText ?? this.loudestMoment : null,
       loudestMoment: this.loudestMoment,
       peakNoise: +this.peakNoise.toFixed(1),
-      tracesFound: [...this.tracesFoundRun],
       routeEvent: this.routeEvent,
       seed: this.runConfig.seed,
     };
@@ -2058,8 +1941,6 @@ export class HillsEngine {
       fallenTreeActive: this.routeEvent === "fallen-tree" && !this.shortcutCleared,
       nearFallenTree: this.isNearFallenTree(),
       lanternLit: this.lanternLit,
-      tracesFound: [...this.tracesFoundRun],
-      latestTrace: this.latestTrace,
       monsterState: this.nearestMonsterState,
       soundLevel: this.soundLevel,
       soundBearingDeg: this.soundBearing,

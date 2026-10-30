@@ -32,8 +32,8 @@ export const PERKS: PerkDef[] = [
 
 export const LEVEL_XP = [0, 250, 600, 1000, 1500, 2200, 3000, 4000];
 
-export function xpForProgress(bankedValue: number, escapes: number, uniqueTraces: number): number {
-  return Math.max(0, Math.floor(bankedValue)) + escapes * 100 + uniqueTraces * 25;
+export function xpForProgress(bankedValue: number, escapes: number): number {
+  return Math.max(0, Math.floor(bankedValue)) + escapes * 100;
 }
 
 export function levelForXp(xp: number): number {
