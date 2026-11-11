@@ -9,7 +9,7 @@ export default function Footer() {
           <div className="col-span-2 md:col-span-1">
             <Image src="/emboogway-wordmark-light.png" alt="Emboogway" width={2720} height={427} className="h-9 w-auto mb-4" />
             <p className="text-sm leading-relaxed text-gold-dim mb-4">
-              An indie game studio making bold, original games. Knoxville, TN.
+              An indie game studio making bold, original games.
             </p>
             <div className="flex gap-4 items-center flex-wrap">
               <a href="https://www.instagram.com/emboogway/" target="_blank" rel="noreferrer" className="text-xs font-display tracking-widest text-gold hover:text-gold-light transition-colors">Instagram</a>
@@ -45,7 +45,7 @@ export default function Footer() {
         <div className="h-px bg-gradient-to-r from-transparent via-gold/40 to-transparent mb-6" />
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-xs text-gold-dim/50">© {new Date().getFullYear()} Emboogway. All rights reserved.</p>
-          <p className="text-xs font-serif italic text-gold-dim/50">Made with obsession in Knoxville, TN</p>
+          <p className="text-xs font-serif italic text-gold-dim/50">Made with obsession</p>
         </div>
       </div>
     </footer>

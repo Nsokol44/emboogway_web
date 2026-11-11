@@ -7,7 +7,7 @@ import WaitlistForm from "@/components/WaitlistForm";
 
 export const metadata: Metadata = {
   title: "Emboogway | Indie Game Studio",
-  description: "Emboogway is a bold indie game studio crafting Waytable, The DM, and Geostory. Waytable is live in the browser; our flagship games and Godot prototypes are in active development. Made in Knoxville, TN.",
+  description: "Emboogway is a bold indie game studio crafting Waytable, The DM, and Geostory. Waytable is live in the browser; our flagship games and Godot prototypes are in active development.",
 };
 
 export default function Home() {
@@ -27,7 +27,7 @@ export default function Home() {
         <div className="relative z-10 text-center px-6 max-w-5xl mx-auto">
           <div className="flex items-center justify-center gap-3 mb-8" style={{ animation: "fadeIn 1s ease forwards" }}>
             <div className="h-px w-10 bg-gold-dim" />
-            <span className="font-display text-xs tracking-widest text-gold-dim">INDIE GAME STUDIO — KNOXVILLE, TN</span>
+            <span className="font-display text-xs tracking-widest text-gold-dim">INDIE GAME STUDIO</span>
             <div className="h-px w-10 bg-gold-dim" />
           </div>
 
