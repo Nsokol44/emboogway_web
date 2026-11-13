@@ -29,6 +29,7 @@ import type { SimResult } from "../lib/engine";
 import { GRATICULE_OUTLINE, GRATICULE_PATH } from "../lib/graticule";
 import { powerColor, shade, techColor, type LayerId } from "../lib/scenarios";
 import { FAITHS } from "../lib/religion";
+import { IDENTITY_VIEW, panMapBy, zoomMapAt, type MapView } from "../lib/viewport";
 import { COUNTRY_WATERWAYS, DOMINANT_TERRAIN, TERRAIN_LABEL, TERRAIN_PALETTE, WATERWAY_HEXES, getTerrainPlateURL } from "../lib/terrain";
 import WeatherOverlay from "./WeatherOverlay";
 
@@ -342,8 +343,97 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
   }, [pulse]);
   const getBox = useCallback(() => boxRef.current, []);
 
+  /* ── user pan/zoom (2026-11-13) ─────────────────────────────────────
+     A CSS transform over the plate, independent of the framing viewBox
+     glide above. Scale 1 is the identity — the familiar full-map
+     framing — and zooming lets a portrait phone fill its stage height
+     with the plate (see lib/viewport.ts). Pinch and drag on touch,
+     wheel and drag on desktop, plus on-screen controls. Tap-vs-drag:
+     a gesture that travels past the threshold suppresses the click it
+     ends with, so country selection only fires on a true tap. Cinema
+     owns its camera, so gestures and controls are inert there. */
+  const [view, setView] = useState<MapView>(IDENTITY_VIEW);
+  const viewRef = useRef<MapView>(IDENTITY_VIEW);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const gestureRef = useRef<{ startX: number; startY: number; lastX: number; lastY: number; pinchD: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
+  const applyView = useCallback((v: MapView) => { viewRef.current = v; setView(v); }, []);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (cinema || (e.target as Element).closest("[data-mapctl]")) return;
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pts = [...pointersRef.current.values()];
+    if (pts.length === 1) {
+      gestureRef.current = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, pinchD: 0, moved: false };
+    } else if (pts.length === 2 && gestureRef.current) {
+      gestureRef.current.pinchD = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      gestureRef.current.moved = true;
+    }
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const g = gestureRef.current;
+    const host = hostRef.current;
+    if (!g || !host || cinema || !pointersRef.current.has(e.pointerId)) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const rect = host.getBoundingClientRect();
+    const pts = [...pointersRef.current.values()];
+    if (pts.length === 2) {
+      const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const mx = (pts[0].x + pts[1].x) / 2 - rect.left;
+      const my = (pts[0].y + pts[1].y) / 2 - rect.top;
+      if (g.pinchD > 0) applyView(zoomMapAt(viewRef.current, host.clientWidth, host.clientHeight, mx, my, d / g.pinchD));
+      g.pinchD = d;
+      g.moved = true;
+    } else if (pts.length === 1) {
+      const dx = e.clientX - g.lastX;
+      const dy = e.clientY - g.lastY;
+      g.lastX = e.clientX;
+      g.lastY = e.clientY;
+      if (Math.hypot(e.clientX - g.startX, e.clientY - g.startY) > 6) g.moved = true;
+      if (g.moved) applyView(panMapBy(viewRef.current, host.clientWidth, host.clientHeight, dx, dy));
+    }
+  };
+  const endPointer = (e: React.PointerEvent) => {
+    pointersRef.current.delete(e.pointerId);
+    const g = gestureRef.current;
+    if (pointersRef.current.size === 0) {
+      if (g?.moved) {
+        suppressClickRef.current = true;
+        setTimeout(() => { suppressClickRef.current = false; }, 400);
+      }
+      gestureRef.current = null;
+    } else if (pointersRef.current.size === 1 && g) {
+      const [p] = [...pointersRef.current.values()];
+      g.lastX = p.x; g.lastY = p.y; g.startX = p.x; g.startY = p.y; g.pinchD = 0;
+    }
+  };
+  /* wheel zoom needs a non-passive listener — React attaches wheel
+     listeners passively at the root, so onWheel could not preventDefault */
+  useEffect(() => {
+    const el = hostRef.current;
+    if (!el || cinema) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      applyView(zoomMapAt(viewRef.current, el.clientWidth, el.clientHeight,
+        e.clientX - rect.left, e.clientY - rect.top, Math.exp(-e.deltaY * 0.0016)));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [cinema, applyView]);
+
+  const handleSelect = (i: number) => { if (!suppressClickRef.current) onSelect(i); };
+  const zoomButton = (factor: number) => {
+    const el = hostRef.current;
+    if (el) applyView(zoomMapAt(viewRef.current, el.clientWidth, el.clientHeight, el.clientWidth / 2, el.clientHeight / 2, factor));
+  };
+
   return (
-    <div className="relative">
+    <div className="relative" ref={hostRef} style={{ touchAction: cinema ? undefined : "none" }}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer}>
+    <div className="relative" style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.s})`, transformOrigin: "0 0" }}>
     <svg viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} className="block h-auto w-full" role="application" aria-label="World simulation map"
       onMouseMove={positionTip} onMouseLeave={() => setHoverIdx(null)}>
       <defs>
@@ -385,7 +475,7 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
           stroke="rgba(3,10,20,0.55)"
           strokeWidth="0.4"
           style={{ cursor: "pointer", transition: "fill 0.45s ease, fill-opacity 0.45s ease" }}
-          onClick={() => onSelect(idx)}
+          onClick={() => handleSelect(idx)}
           onMouseOver={() => setHoverIdx(idx)}
         >
           <title>{c.name}</title>
@@ -612,20 +702,22 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
 
       {/* generous tap targets for small countries */}
       {COUNTRIES.map((c, idx) => (
-        <circle key={`hit-${c.code}`} cx={c.cx} cy={c.cy} r="10" fill="transparent" style={{ cursor: "pointer" }} onClick={() => onSelect(idx)} onMouseOver={() => setHoverIdx(idx)}>
+        <circle key={`hit-${c.code}`} cx={c.cx} cy={c.cy} r="10" fill="transparent" style={{ cursor: "pointer" }} onClick={() => handleSelect(idx)} onMouseOver={() => setHoverIdx(idx)}>
           <title>{c.name}</title>
         </circle>
       ))}
     </svg>
+
+    {/* the sky — inside the pan/zoom wrapper so the weather scales and
+        pans with the plate it falls on */}
+    {weather && <WeatherOverlay result={result} yearIdx={yearIdx} getBox={getBox} />}
+    </div>
 
     {/* screen-level emphasis on a major event — a breath of gold at the
         frame's edge, timed with the site ring inside the map */}
     {pulse && pulseKey === pulse.key && (
       <div key={`flash-${pulse.key}`} className="gs-flash pointer-events-none absolute inset-0 z-10" aria-hidden />
     )}
-
-    {/* the sky — ambient weather above the washes, below the chrome */}
-    {weather && <WeatherOverlay result={result} yearIdx={yearIdx} getBox={getBox} />}
 
     {/* hover tooltip — follows the cursor, positioned imperatively */}
     {hoverIdx !== null && hoverSnap && (
@@ -661,6 +753,22 @@ export default function WorldMap({ result, yearFloat, layer, selectedIdx, onSele
           {layer === "terrain" && <>Terrain: <strong style={{ color: "#f0c060" }}>{TERRAIN_LABEL[DOMINANT_TERRAIN[hoverIdx]]}</strong> heartland{(COUNTRY_WATERWAYS.get(hoverIdx) ?? []).length > 0 && <> · <strong style={{ color: "#9fd0ee" }}>{(COUNTRY_WATERWAYS.get(hoverIdx) ?? []).join(" · ")}</strong></>}</>}
           <span style={{ color: "#93a7bd" }}> · GDP {fmtGdp(hoverSnap.gdp)}</span>
         </div>
+      </div>
+    )}
+
+    {/* pan/zoom controls — top-right of the plate, clear of the
+        centred banners; hidden while cinema owns the camera */}
+    {!cinema && (
+      <div data-mapctl className="absolute right-2 top-2 z-30 flex flex-col gap-1">
+        <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomButton(1.4)}
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-md border text-[15px] leading-none backdrop-blur-sm"
+          style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.45)", color: "#f7f0e3" }}>+</button>
+        <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoomButton(1 / 1.4)}
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-md border text-[15px] leading-none backdrop-blur-sm"
+          style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.45)", color: "#f7f0e3" }}>−</button>
+        <button type="button" aria-label="Reset view" title="Reset view" onClick={() => applyView(IDENTITY_VIEW)}
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-md border text-[15px] leading-none backdrop-blur-sm"
+          style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(240,192,96,0.45)", color: "#f7f0e3" }}>⟲</button>
       </div>
     )}
     </div>

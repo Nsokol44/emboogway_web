@@ -7,8 +7,10 @@
  *  - MDG panel: same protocol for Madagascar.
  *    TARGET: world #1 in ≥3/12. (Pre-package: 0/12, best rank ~8.)
  *  - Dormant guard: the sim-check 10 configs, unclaimed. Annexations must
- *    total 450–700 (pre-package 565) and no run's top bloc may exceed
- *    1.5× its pre-package counterpart (recorded below, 2026-10-28).
+ *    total 221–271 — the 2026-11-13 recalibration target (246, the
+ *    documented baseline; the package-era band was 450–700 around 565)
+ *    and no run's top bloc may exceed 1.5× its pre-package counterpart
+ *    (recorded below, 2026-10-28).
  *  - Determinism + rule asserts: identical config → identical digest;
  *    endowment provably never fires without a micro Superpower claim;
  *    every fold event in every run is verified against the fold
@@ -135,7 +137,7 @@ for (const cfg of DORMANT) {
   console.log(`  ${cfg.scenarioId}: annex ${annex}, top ${top.code} ${top.power} (pre-package ${BEFORE_TOP[cfg.scenarioId]}, ceiling ${ceil.toFixed(0)})`);
   check(top.power <= ceil, `dormant ${cfg.scenarioId}: top bloc within 1.5× of pre-package`);
 }
-check(annexTotal >= 450 && annexTotal <= 700, `dormant annexations total ${annexTotal} within 450–700 (pre-package 565)`);
+check(annexTotal >= 221 && annexTotal <= 271, `dormant annexations total ${annexTotal} within 221–271 (2026-11-13 recalibration target 246; package-era 565–623)`);
 console.log(`  dormant fold-ins total: ${dormantFolds}`);
 
 /* -------------------------------------------------------------- determinism */

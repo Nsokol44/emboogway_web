@@ -73,6 +73,7 @@ Annexation event totals:
 | strain v4 (+ heal equilibrium, active-siege dilution) | 689 | 58–66 |
 | strain v6 (+ tightening / siegeBase) | 545 | 47–64 |
 | **strain v7 (shipped: RATE 0.06, pressure booster ×(1 + 6·strain))** | **565** | **47–65** |
+| **2026-11-13 recalibration (RATE/CAP 0.02, HEAL 0.14, digestion 6y)** | **246** | **57–81** |
 
 The v1→v7 path is the point: a universal "pressure" term dissolves
 the world (only ~60 of 175 countries sovereign by 2100). The shipped
@@ -94,6 +95,49 @@ pre-religion field bit-identical to the origin engine across 5
 configs); the tuning then deliberately supersedes outcome-identity
 wherever strain accumulates, and only there in kind — faith never
 feeds the annexation track in either direction.
+
+## 2026-11-13 recalibration — back to the documented baseline rate
+
+An external review flagged that the model annexes about twice the
+rate this document's calibration table sets as its baseline (245
+origin / 246 merged pre-tuning). Measured on the shipped engine with
+`scripts/annex-measure.ts` (the calibration metric: annex events
+across the 10 sim-check configs, unboosted), the panel total was
+**620** — 2.5× the documented baseline, the v7 doubling compounded by
+the small-nation package's momentum and fold-in era. The owner
+approved restoring the documented rate as a deliberate design change.
+
+**The change** (all inside the annexation track; nothing else moves):
+`STRAIN_RATE` and `STRAIN_GAIN_CAP` 0.06 → 0.02 (the grind builds at a
+third of the v7 pace), `STRAIN_HEAL` 0.08 → 0.14 (strain equilibrates
+lower), and the post-annexation digestion window 3 → 6 years
+(`ANNEX_DIGEST_YEARS`), capping annexation tempo on both the strain
+and natural paths. Fold-in rules, momentum, the endowment, baseline
+data and the faith track are untouched.
+
+**Measured after** (same script, same panel): annexations **620 →
+246** — the documented baseline, inside a ±10% tolerance of 221–271.
+Per-run annexations 62.0 → 24.6; held in 2100 83–106 → 57–81 per run;
+fold-ins 404 → 436 (states that would have been annexed now more
+often drift in as clients first). The sim fingerprint and the
+improvements probe's recorded digest were re-based in the same
+change; the dormant guard band in `scripts/small-nation-panel.ts` is
+now 221–271. Small-nation outcomes hold: PRI still finishes № 5 in
+12/12 seeds and MDG № 3–5, with top blocs inside their pre-package
+ceilings; the three documented acceptance shortfalls (PRI № 1, PRI
+top-3, MDG № 1) are unchanged.
+
+**The honest cost.** The grind is slower for everyone, including the
+focused neighbour the strain mechanic was built for: on the moz-5
+fixture, Mozambique's strain by 2045 is 0.07 (was 0.33) and the 2046
+annexation no longer fires; on takeover-1 the Dominican Republic
+still falls to a besieging Puerto Rico, but in 2077, not the 2040s.
+The improvements probe's guarantee / counter / fortify fixtures were
+re-based to the sieges that still develop under the new scale
+(takeover-3 HTI fold, 2080; takeover-1 DOM annex, 2077) and all
+probes pass. Restoring the pre-strain rate necessarily gives back
+part of the v7 dynamism — that trade is the owner's call, recorded
+here, and it is reversible through the same four constants.
 
 ## The entertainment bar — investigated, with numbers
 
@@ -211,7 +255,7 @@ boosts, 12 seeds; dormant = sim-check's 10 configs):
 |---|---|---|
 | PRI final rank | 59–63 (8 seeds), 0 takes | **5 in 12/12**, bloc ~70–97, DOM + HTI taken in most seeds |
 | MDG final rank | ~8–15, median bloc ≈ 11 | **3–5**, median bloc ≈ 140, TZA/BDI chain in good seeds |
-| Dormant annexations (10 runs) | 565 | 623 (band 450–700) |
+| Dormant annexations (10 runs) | 565 | 623 (band 450–700) — superseded 2026-11-13: 246 (band 221–271), see the recalibration section |
 | Dormant top blocs | 691–1337 | 680–1360 (all within 1.5× of before, most within ±10%) |
 
 **The acceptance targets (PRI #1 ≥ 3/12 and top-3 ≥ 8/12; MDG #1
@@ -258,7 +302,9 @@ sandbox/base-0 `fac54e8e…`, lagos-5/NGA `0b61136e…`, takeover-1/PRI
 superpower `3b4db1d4…` — all unchanged. Dormant small-nation panel
 after the package: annex total 623 (band 450–700), top blocs within
 1.5× of pre-package, and only the three accepted target FAILs
-(PRI #1, PRI top-3, MDG #1).
+(PRI #1, PRI top-3, MDG #1). (The annex total and band were superseded
+by the 2026-11-13 recalibration: 246, band 221–271; the digests below
+are the pre-recalibration records.)
 
 ### Causality (why-data)
 

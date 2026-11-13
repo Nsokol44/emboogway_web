@@ -3,16 +3,20 @@
  * improvement programme (items 1–5). Each verb must change the outcome
  * it claims, on fixtures where the unmodified outcome is known:
  *
- *   guarantee  — DOM folds into Puerto Rico's orbit in 2042 on the
- *                takeover-1 fixture; guaranteed in 2040, it cannot fold
+ *   guarantee  — HTI folds into Puerto Rico's orbit in 2080 on the
+ *                takeover-3 fixture; guaranteed in 2078, it cannot fold
  *                anywhere inside the 15-year window.
- *   counter    — on the same fixture DOM's streak under PRI reads 4/5
- *                in 2041; a Counter-Influence in 2042 lands it at 0/5
- *                with PRI still the partner, and no fold follows inside
- *                the rebuilt clock's first five years.
- *   fortify    — on moz-5, Madagascar besieges Mozambique (strain 0.33
- *                by 2045) and annexes it in 2046; fortified in 2040,
- *                the strain is 0.04 and the annexation never lands.
+ *   counter    — on the same fixture HTI's streak under PRI reads 4/5
+ *                in 2079; a Counter-Influence in 2080 lands it at 0/5,
+ *                and no fold follows inside the rebuilt clock's first
+ *                five years.
+ *   fortify    — on takeover-1, Puerto Rico besieges the Dominican
+ *                Republic (strain 0.162 by 2076) and annexes it in 2077;
+ *                fortified in 2074, the strain drains away and the
+ *                annexation never lands.
+ *   (Fixtures re-based 2026-11-13: the annexation recalibration —
+ *   GEOSTORY_TUNING.md — superseded the moz-5 / takeover-1 DOM-fold
+ *   fixtures, whose sieges developed under the old gain scale.)
  *   stabilise  — across six takeover seeds, a Stabilise on DOM in 2030
  *                lifts its 2031 stability by ≥ +0.05 in every seed.
  *   pact       — a PRI>DOM market pact (2030) leaves DOM's GDP in 2045
@@ -24,8 +28,10 @@
  *
  * Plus: the regions partition is exact, the ladder reads the fixture
  * correctly, why-lines render from causes, share links round-trip the
- * new levers, and the empty-config digest is the pre-programme digest
- * (bit-identical dormant world — gate (a)).
+ * new levers, and the empty-config digest matches the calibrated
+ * engine (gate (a) — the digest was re-based once, on 2026-11-13, for
+ * the approved annexation recalibration; it must not drift again
+ * without a deliberate model change recorded in GEOSTORY_TUNING.md).
  *
  * Run: bun scripts/improvements-probe.ts
  */
@@ -49,13 +55,13 @@ const check = (label: string, ok: boolean, detail = "") => {
 const iv = (year: number, lever: Intervention["lever"], target: string, cost: number): Intervention =>
   ({ year, lever, target, cost });
 const idx = (code: string) => CODE_IDX.get(code)!;
-const PRI = idx("PRI"), DOM = idx("DOM"), MOZ = idx("MOZ"), TWN = idx("TWN"), VNM = idx("VNM");
+const PRI = idx("PRI"), DOM = idx("DOM"), HTI = idx("HTI"), TWN = idx("TWN"), VNM = idx("VNM");
 
-/* ---- gate (a): the dormant world is bit-identical -------------------- */
+/* ---- gate (a): the dormant world matches the calibrated engine ------ */
 {
   const r = runSimulation({ scenarioId: "multipolar", seed: "stratatir-1", boosts: ZERO_BOOSTS });
   const md5 = createHash("md5").update(JSON.stringify(r)).digest("hex");
-  check("empty-config digest unchanged", md5 === "53149b3914a11403f3e2e1d33ec60b51", md5.slice(0, 8));
+  check("empty-config digest unchanged", md5 === "2366bde0632115366d5fe2000bc0eb84", md5.slice(0, 8));
   check("diagnostics ride non-enumerably", !!r.diagnostics && !JSON.stringify(r).includes("diagnostics"));
   const someCause = r.events.find((e) => e.cause);
   check("causes ride non-enumerably", !!someCause && !JSON.stringify(r.events).includes("\"cause\""));
@@ -71,16 +77,20 @@ const PRI = idx("PRI"), DOM = idx("DOM"), MOZ = idx("MOZ"), TWN = idx("TWN"), VN
     `dupes=${dupes.join(",")} missing=${missing.join(",")}`);
 }
 
-/* ---- the takeover fixture --------------------------------------------- */
+/* ---- the takeover fixtures -------------------------------------------- */
 const TAKE: SimConfig = { scenarioId: "multipolar", seed: "takeover-1", boosts: SUPERPOWER_BOOSTS, focusCode: "PRI" };
 const base = runSimulation(TAKE);
-const domFold = base.events.find((e) => e.kind === "fold" && e.cause?.subject === DOM);
-check("fixture: DOM folds to PRI in 2042", !!domFold && domFold.year === 2042 && domFold.cause?.driver === PRI,
-  domFold ? `${domFold.year}` : "no fold found");
-check("fixture: DOM streak under PRI is 4/5 in 2041",
-  base.diagnostics!.risk[2041 - 2026][DOM].partner === PRI && base.diagnostics!.risk[2041 - 2026][DOM].streak === 4);
+/* the fold fixture (re-based 2026-11-13): on takeover-3, Haiti folds
+   into Puerto Rico's orbit in 2080, its streak under PRI at 4/5 in 2079 */
+const TAKE3: SimConfig = { scenarioId: "multipolar", seed: "takeover-3", boosts: SUPERPOWER_BOOSTS, focusCode: "PRI" };
+const base3 = runSimulation(TAKE3);
+const htiFold = base3.events.find((e) => e.kind === "fold" && e.cause?.subject === HTI);
+check("fixture: HTI folds to PRI in 2080", !!htiFold && htiFold.year === 2080 && htiFold.cause?.driver === PRI,
+  htiFold ? `${htiFold.year}` : "no fold found");
+check("fixture: HTI streak under PRI is 4/5 in 2079",
+  base3.diagnostics!.risk[2079 - 2026][HTI].partner === PRI && base3.diagnostics!.risk[2079 - 2026][HTI].streak === 4);
 {
-  const why = domFold ? eventWhy(domFold) : null;
+  const why = htiFold ? eventWhy(htiFold) : null;
   check("why-line renders from the cause", !!why && why.includes("5 straight years") && why.includes("stability"),
     why ?? "null");
 }
@@ -112,33 +122,32 @@ check("fixture: DOM streak under PRI is 4/5 in 2041",
 
 /* ---- item 3: guarantee ------------------------------------------------- */
 {
-  const r = runSimulation({ ...TAKE, interventions: [iv(2040, "guarantee", "DOM", 2)] });
-  const folds = r.events.filter((e) => e.kind === "fold" && e.cause?.subject === DOM && e.year >= 2040 && e.year < 2055);
-  check("guarantee: DOM cannot fold inside the window", folds.length === 0, `${folds.length} folds`);
-  check("guarantee: window is on the risk track", r.diagnostics!.risk[2050 - 2026][DOM].guarUntil === 2055);
+  const r = runSimulation({ ...TAKE3, interventions: [iv(2078, "guarantee", "HTI", 2)] });
+  const folds = r.events.filter((e) => e.kind === "fold" && e.cause?.subject === HTI && e.year >= 2078 && e.year < 2093);
+  check("guarantee: HTI cannot fold inside the window", folds.length === 0, `${folds.length} folds`);
+  check("guarantee: window is on the risk track", r.diagnostics!.risk[2088 - 2026][HTI].guarUntil === 2093);
 }
 
 /* ---- item 3: counter-influence ----------------------------------------- */
 {
-  const r = runSimulation({ ...TAKE, interventions: [iv(2042, "counter", "PRI>DOM", 1)] });
-  const rk = r.diagnostics!.risk[2042 - 2026][DOM];
-  check("counter: the 4/5 streak lands at 0/5", rk.partner === PRI && rk.streak === 0,
+  const r = runSimulation({ ...TAKE3, interventions: [iv(2080, "counter", "PRI>HTI", 1)] });
+  const rk = r.diagnostics!.risk[2080 - 2026][HTI];
+  check("counter: the 4/5 streak lands at 0/5", rk.streak === 0,
     `partner=${rk.partner >= 0 ? COUNTRIES[rk.partner].code : "-"} streak=${rk.streak}`);
-  const folds = r.events.filter((e) => e.kind === "fold" && e.cause?.subject === DOM && e.cause?.driver === PRI && e.year >= 2042 && e.year < 2047);
+  const folds = r.events.filter((e) => e.kind === "fold" && e.cause?.subject === HTI && e.cause?.driver === PRI && e.year >= 2080 && e.year < 2085);
   check("counter: no fold while the clock rebuilds", folds.length === 0);
 }
 
 /* ---- item 2: fortify ---------------------------------------------------- */
 {
-  const cfg: SimConfig = { scenarioId: "multipolar", seed: "moz-5", boosts: SUPERPOWER_BOOSTS, focusCode: "MDG" };
-  const b = runSimulation(cfg);
-  const bAx = b.events.find((e) => e.kind === "annex" && e.cause?.subject === MOZ);
-  check("fixture: Madagascar annexes Mozambique in 2046", !!bAx && bAx.year === 2046, bAx ? `${bAx.year}` : "none");
-  const r = runSimulation({ ...cfg, interventions: [iv(2040, "fortify", "MOZ", 2)] });
-  const rAx = r.events.filter((e) => e.kind === "annex" && e.cause?.subject === MOZ && e.year >= 2040 && e.year < 2050);
+  const bAx = base.events.find((e) => e.kind === "annex" && e.cause?.subject === DOM);
+  check("fixture: Puerto Rico annexes the Dominican Republic in 2077", !!bAx && bAx.year === 2077 && bAx.cause?.driver === PRI,
+    bAx ? `${bAx.year}` : "none");
+  const r = runSimulation({ ...TAKE, interventions: [iv(2074, "fortify", "DOM", 2)] });
+  const rAx = r.events.filter((e) => e.kind === "annex" && e.cause?.subject === DOM && e.year >= 2074 && e.year < 2084);
   check("fortify: the annexation never lands inside the window", rAx.length === 0);
-  check("fortify: the strain drains away", r.diagnostics!.risk[2045 - 2026][MOZ].strain < 0.1,
-    `strain ${r.diagnostics!.risk[2045 - 2026][MOZ].strain} vs base ${b.diagnostics!.risk[2045 - 2026][MOZ].strain}`);
+  check("fortify: the strain drains away", r.diagnostics!.risk[2076 - 2026][DOM].strain < 0.05,
+    `strain ${r.diagnostics!.risk[2076 - 2026][DOM].strain} vs base ${base.diagnostics!.risk[2076 - 2026][DOM].strain}`);
 }
 
 /* ---- item 3: stabilise (seed panel) -------------------------------------- */

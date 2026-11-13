@@ -368,10 +368,17 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
  * grip keeps strengthening equilibrates high and, after roughly a
  * decade, brings its target to the gate. */
 const STRAIN_FLOOR_MARGIN = 0.3; // presser ratio must clear ratioNeeded − this to start the grind
-const STRAIN_RATE = 0.06; // strain per year per unit of (ratio excess)^0.7 above that floor
-const STRAIN_GAIN_CAP = 0.06; // max strain any target can gain in one year, before siege dilution
+/* 2026-11-13 recalibration (approved design change — see GEOSTORY_TUNING.md
+ * "2026-11-13 recalibration"): the shipped v7 gain scale doubled the
+ * documented baseline annexation rate (panel total 620 vs the documented
+ * 245–246). RATE/CAP 0.06 → 0.02 and HEAL 0.08 → 0.14 slow the grind and
+ * lower its equilibrium; with ANNEX_DIGEST_YEARS 3 → 6 the measured panel
+ * total lands back on 246. */
+const STRAIN_RATE = 0.02; // strain per year per unit of (ratio excess)^0.7 above that floor
+const STRAIN_GAIN_CAP = 0.02; // max strain any target can gain in one year, before siege dilution
 const STRAIN_MAX = 0.45; // a state can be ground down at most this far below its anchor
-const STRAIN_HEAL = 0.08; // fraction of strain that heals every year, besieged or not
+const STRAIN_HEAL = 0.14; // fraction of strain that heals every year, besieged or not
+const ANNEX_DIGEST_YEARS = 6; // years after an annexation before the presser can besiege or press again
 const STRAIN_INHERIT = 0.25; // fraction of strain kept when the presser changes
 const STRAIN_INFLUENCE = 0.2; // strain at which the presser counts as the dominant influence for the gate, and annexation pressure may pre-accumulate
 
@@ -910,7 +917,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
         const needed0 = year < st[c0].fortUntil ? needed0Base + 0.6 : needed0Base; // a fortified frontier starts the grind later too
         const floor = needed0 - STRAIN_FLOOR_MARGIN;
         ratio0[c0] = bR; floor0[c0] = floor;
-        const digesting0 = bP >= 0 && year - (lastAnnexYear.get(bP) ?? -99) < 3;
+        const digesting0 = bP >= 0 && year - (lastAnnexYear.get(bP) ?? -99) < ANNEX_DIGEST_YEARS;
         if (bP >= 0 && !digesting0 && bR > floor && blocPow[bP] > pow[c0] * 3) {
           presser0[c0] = bP;
           activeSieges.set(bP, (activeSieges.get(bP) ?? 0) + 1);
@@ -931,7 +938,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
         const protectedCore = ctrl === c && (rankOf.get(c) ?? 99) <= 5;
         const ratioNeededBase = protectedCore ? 3.2 : isMajor ? 2.6 : 1.9;
         const ratioNeeded = year < st[c].fortUntil ? ratioNeededBase + 0.6 : ratioNeededBase; // fortified frontier: a wider gap to bite
-        const digesting = bestP >= 0 && year - (lastAnnexYear.get(bestP) ?? -99) < 3; // empires need time to digest
+        const digesting = bestP >= 0 && year - (lastAnnexYear.get(bestP) ?? -99) < ANNEX_DIGEST_YEARS; // empires need time to digest
         /* sustained pressure accumulates as strain (see tuning constants),
            judged on the start-of-year pre-pass: strain HEALS a little
            every year and the besieger's grind is added on top — an
