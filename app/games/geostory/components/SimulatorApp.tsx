@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WaitlistForm from "@/components/WaitlistForm";
 import { CODE_IDX, COUNTRIES, END_YEAR, START_YEAR } from "../lib/data";
-import { ZERO_BOOSTS, endowmentFor, runSimulation, type SimConfig, type SimEvent } from "../lib/engine";
+import { ZERO_BOOSTS, endowmentFor, simKey, type runSimulation, type SimConfig, type SimEvent } from "../lib/engine";
+import { runCached, useSimResults } from "../lib/simRunner";
 import {
   SUPERPOWER_BOOSTS, awayHeadlines, computeCatchUp, lineageKey, loadIdlerRecord,
   paceDef, rankAt, saveIdlerRecord, type PaceId,
@@ -49,7 +50,7 @@ function validCfg(c: unknown): c is SimConfig {
 const GUIDE_STEPS: { icon: string; title: string; text: string }[] = [
   { icon: "🌍", title: "A living century", text: "This is a simulated world: 175 countries, 2026 to 2100. Press ▶ and history plays out — the same seed always replays the same century. The pace is yours, in the strip below: Paused, Watchful (a year every 10 seconds) or Brisk (two years a second)." },
   { icon: "⚑", title: "Claim a nation", text: "Tap ⚑ CLAIM A NATION and pick one country. It becomes your anchor — outlined in cyan, its fortunes are your score — and you never hold its leash: it lives its own life while you watch and nudge. Your claim is saved on this device, and the world keeps turning at your pace while you're away. Come back to a “While you were away” card." },
-  { icon: "🔔", title: "Turning Points, no interruptions", text: "Each decade, and after big shocks, a Turning Point lands in the notifications rail — the run never pauses for it. While its year is live you can spend influence on a lever (a research drive, a trade realignment, a hardened strait), or simply let the moment pass. You hold 6 influence; the ledger in the rail always shows what you've earned and spent." },
+  { icon: "🔔", title: "Turning Points", text: "Each decade, and after big shocks, a Turning Point lands in the notifications rail. If you've backed a nation, the clock waits a few seconds for you — then rolls on. While it waits you can spend influence on a lever (a research drive, a trade realignment, a hardened strait), or simply let the moment pass. You hold 6 influence; the ledger in the rail always shows what you've earned and spent." },
   { icon: "🎬", title: "Cinema mode", text: "Tap 🎬 CINEMA (or press C) and every panel bows out — just the world, full screen, with a director camera that drifts to where history is happening. It's the clean view: the one to watch, and the one to record. Esc brings the controls back." },
 ];
 
@@ -110,6 +111,65 @@ function GuideCard({ onClose }: { onClose: () => void }) {
             <>One idea at a time — skip whenever you're ready to play.</>
           )}
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* The front door — first visit only. The whole game in one card: watch
+   a century, or back a nation and watch it with a stake. Either choice
+   starts the clock at once; the four-step guide is a link, not a wall. */
+const QUICK_NATIONS = ["USA", "CHN", "IND", "BRA", "NGA", "DEU", "IDN", "EGY"];
+
+function FrontDoor({ onWatch, onBack, onQuick, onGuide, onClose }: {
+  onWatch: () => void;
+  onBack: () => void;
+  onQuick: (idx: number) => void;
+  onGuide: () => void;
+  onClose: () => void;
+}) {
+  const quick = QUICK_NATIONS.map((c) => CODE_IDX.get(c)).filter((i): i is number => i !== undefined);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Start the GeoStory Simulator"
+      style={{ background: "rgba(3,10,20,0.6)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border px-5 py-5"
+        style={{ background: "linear-gradient(165deg, #0b2138 0%, #06182c 78%)", borderColor: "rgba(201,150,58,0.55)", boxShadow: "0 24px 70px rgba(0,0,0,0.7), inset 0 1px 0 rgba(240,192,96,0.16)" }}
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start">
+          <div className="font-display text-xs tracking-[0.3em]" style={{ color: GOLD_DEEP }}>A SIMULATED CENTURY · 2026–2100</div>
+          <button onClick={onClose} className="ml-auto rounded-md px-2 py-1 text-sm leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Close and explore the map">✕</button>
+        </div>
+        <h2 className="mt-1 font-serif text-2xl font-bold leading-tight" style={{ color: CREAM }}>175 nations. One century. You watch it unfold.</h2>
+        <p className="mt-1.5 text-[13px] leading-relaxed" style={{ color: PARCH }}>
+          The world runs itself. Back a nation and its fortunes become your score; at each Turning Point the
+          clock waits a moment so you can nudge history with influence, or let it pass.
+        </p>
+        <div className="mt-4 grid gap-2">
+          <button onClick={onBack}
+            className="w-full rounded px-4 py-3 font-display text-base tracking-[0.18em]"
+            style={{ background: "linear-gradient(150deg,#e8bc58,#c9963a)", color: "#081426", boxShadow: "0 4px 18px rgba(201,150,58,0.4)" }}>
+            ⚑ BACK A NATION
+          </button>
+          <button onClick={onWatch}
+            className="w-full rounded border px-4 py-3 font-display text-base tracking-[0.18em]"
+            style={{ borderColor: "rgba(201,150,58,0.55)", color: GOLD }}>
+            ▶ JUST WATCH THE CENTURY
+          </button>
+        </div>
+        <div className="mt-4 text-[11px] tracking-[0.2em]" style={{ color: MUTED }}>OR JUMP STRAIGHT IN AS</div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {quick.map((i) => (
+            <button key={i} onClick={() => onQuick(i)}
+              className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs hover:opacity-85"
+              style={{ borderColor: "rgba(147,167,189,0.35)", color: CREAM, background: "rgba(3,12,24,0.45)" }}>
+              <span className="h-2 w-2 rounded-[2px]" style={{ background: powerColor(COUNTRIES[i].code) }} />
+              {COUNTRIES[i].name}
+            </button>
+          ))}
+        </div>
+        <button onClick={onGuide} className="mt-4 text-[11px] underline underline-offset-2 hover:opacity-80" style={{ color: MUTED }}>
+          How does it work? Four quick tips
+        </button>
       </div>
     </div>
   );
@@ -282,7 +342,7 @@ function ClaimPicker({ panelNo, yearIdx, result, currentClaimCode, onPick, onSup
           </ul>
         </div>
         <p className="mt-3 text-[11px]" style={{ color: FAINT }}>
-          Prefer the map? Tap any country, then ⚑ CLAIM in its dossier. A 🚀 Superpower run restarts this
+          Prefer the map? Tap any country, then ⚑ CLAIM in its Country tab. A 🚀 Superpower run restarts this
           sim at 2026 with the boost applied — same seed, same settings, fully reproducible.
           Small-nation endowment: a Superpower run on a nation starting under $150B also lifts it to a
           great-power economic base (≈$450B) at 2026 — the fantasy is the base, not just the boosts.
@@ -308,6 +368,8 @@ export default function SimulatorApp() {
   const [terrainArt, setTerrainArt] = useState(true);
   const [weatherOn, setWeatherOn] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [frontDoor, setFrontDoor] = useState(false);
+  const startOnClaimRef = useRef(false); // a claim made from the front door starts the clock
   const [modelOpen, setModelOpen] = useState(false);
   const [challenge, setChallenge] = useState(false);
   /* the full-screen stage shows ONE panel at a time — the bottom deck's
@@ -341,8 +403,12 @@ export default function SimulatorApp() {
     setAnchorLog((l) => [...l.slice(-39), { id, year, text }]);
   }, []);
 
-  /* full deterministic histories, computed here so panels can be diffed */
-  const results = useMemo(() => panels.map((p) => runSimulation(p.cfg)), [panels]);
+  /* full deterministic histories, computed here so panels can be diffed.
+     Cached by simKey; an edited panel keeps its old century (pending)
+     while the new one runs in a worker — see lib/simRunner.ts */
+  const runs = useSimResults(panels);
+  const results = runs.map((r) => r.result);
+  const anyPending = runs.some((r) => r.pending);
   const activePanel = panels.find((p) => p.id === activeId) ?? panels[0];
   const activeResult = results[panels.findIndex((p) => p.id === activePanel.id)] ?? results[0];
 
@@ -377,7 +443,9 @@ export default function SimulatorApp() {
         if (typeof d.terrainArt === "boolean") setTerrainArt(d.terrainArt);
         if (typeof d.weather === "boolean") setWeatherOn(d.weather);
       }
-      if (!localStorage.getItem(LS_GUIDE)) setGuideOpen(true);
+      /* first visit: the front door (two choices), not a tutorial wall.
+         A challenge link or a returning claim skips it — they already chose. */
+      if (!localStorage.getItem(LS_GUIDE) && !linked && !loadIdlerRecord()?.claimCode) setFrontDoor(true);
       setCtaGone(sessionStorage.getItem(SS_CTA) === "1");
 
       /* the Idler: resume the claimed world, fast-forwarded by the time
@@ -390,7 +458,7 @@ export default function SimulatorApp() {
             restoredPanels.find((p) => p.id === rec.panelId && lineageKey(p.cfg) === rec.lineage) ??
             restoredPanels.find((p) => lineageKey(p.cfg) === rec.lineage);
           if (panel && claimIdx >= 0) {
-            const result = runSimulation(panel.cfg);
+            const result = runCached(panel.cfg); // seeds the cache: the panel won't re-run it
             const fromYi = Math.max(0, Math.min(MAX_YEAR_IDX, rec.savedYearIdx));
             const cu = computeCatchUp(fromYi, rec.savedAt, Date.now(), rec.pace, MAX_YEAR_IDX);
             setClaim({ code: rec.claimCode, idx: claimIdx, panelId: panel.id, lineage: rec.lineage });
@@ -519,6 +587,7 @@ export default function SimulatorApp() {
   const holdRequest = useCallback((ms: number) => {
     holdUntilRef.current = Math.max(holdUntilRef.current, performance.now() + ms);
   }, []);
+  const holdRelease = useCallback(() => { holdUntilRef.current = 0; }, []);
   const choosePace = useCallback((p: PaceId) => {
     if (p !== "paused") lastPaceRef.current = p;
     setPace(p);
@@ -548,6 +617,12 @@ export default function SimulatorApp() {
     setGuideOpen(false);
     try { localStorage.setItem(LS_GUIDE, "1"); } catch { /* non-fatal */ }
   }, []);
+  /* leaving the front door by any route counts as seen (same flag as the
+     guide: a visitor who has chosen once is never asked again) */
+  const closeFrontDoor = useCallback(() => {
+    setFrontDoor(false);
+    try { localStorage.setItem(LS_GUIDE, "1"); } catch { /* non-fatal */ }
+  }, []);
 
   /* ---- keyboard: space play/pause, arrows step a year, 1–N layers (N =
          LAYERS.length — Religion is № 6),
@@ -561,6 +636,7 @@ export default function SimulatorApp() {
         setModelOpen(false);
         closeGuide();
         setPickerOpen(false);
+        if (frontDoor) closeFrontDoor();
         return;
       }
       if (e.code === "Space" && t && t.tagName === "BUTTON") return; // a focused button activates natively
@@ -588,7 +664,10 @@ export default function SimulatorApp() {
       cfg.boosts.growth + cfg.boosts.tech + cfg.boosts.military + cfg.boosts.resources > 0 ||
       (cfg.rivals?.length ?? 0) > 0;
     if (boosted) setEngaged(true);
-    setPanels((ps) => ps.map((p) => (p.id === id ? { ...p, cfg } : p)));
+    /* an unchanged history is not an edit (a slider's release + blur both
+       commit; a re-picked scenario may be the same one) — skip the re-run */
+    const key = simKey(cfg);
+    setPanels((ps) => (ps.some((p) => p.id === id && simKey(p.cfg) === key) ? ps : ps.map((p) => (p.id === id ? { ...p, cfg } : p))));
   };
   const addPanel = () => {
     if (panels.length >= 4) return;
@@ -620,8 +699,16 @@ export default function SimulatorApp() {
       pushAnchor(yr, `You claimed ${COUNTRIES[idx].name} as your anchor. Its fortunes are the score; its leash is not held.`);
     }
     setClaim({ code, idx, panelId: activePanel.id, lineage: lineageKey(activePanel.cfg) });
-    setSelectedIdx(idx);
+    /* from the front door the century starts at once: keep the map clear
+       (selecting would open the dossier over it) — the claim's cyan
+       outline already marks the nation */
+    if (!startOnClaimRef.current) setSelectedIdx(idx);
     setPickerOpen(false);
+    if (startOnClaimRef.current) {
+      startOnClaimRef.current = false;
+      lastPaceRef.current = "brisk";
+      setPace("brisk");
+    }
   }, [claim, activePanel, yearFloat, pushAnchor]);
 
   const releaseClaim = useCallback(() => {
@@ -703,6 +790,7 @@ export default function SimulatorApp() {
     holdMajors,
     onToggleHoldMajors: () => setHoldMajors((v) => !v),
     onHoldRequest: holdRequest,
+    onHoldRelease: holdRelease,
   });
 
   /* panel switcher for the collapsed strip */
@@ -793,6 +881,17 @@ export default function SimulatorApp() {
           </div>
         )}
 
+        {/* an edited sim is being re-run off the main thread: the map keeps
+            showing the previous century until the new one lands */}
+        {anyPending && (
+          <div className="pointer-events-none absolute inset-x-0 top-[104px] z-20 flex justify-center px-3 max-sm:top-28" role="status" aria-live="polite">
+            <span className="rounded-full border px-3 py-1 font-display text-[11px] tracking-[0.2em]"
+              style={{ background: "rgba(4,16,30,0.82)", borderColor: "rgba(127,176,224,0.5)", color: "#9fd0ff" }}>
+              ⟳ SIMULATING THE CENTURY…
+            </span>
+          </div>
+        )}
+
         {/* contextual waitlist CTA — earned by playing; floats top-center
             under the header overlay, dismissible, never covers mid-map.
             PORTRAIT: same stage-top anchor as the hint (the deck out-ranks
@@ -834,7 +933,18 @@ export default function SimulatorApp() {
         />
       )}
 
-      {/* the tutorial — first load only (LS_GUIDE), reopenable via "?" */}
+      {/* the front door — first visit only; the tutorial is one link away */}
+      {frontDoor && (
+        <FrontDoor
+          onClose={closeFrontDoor}
+          onWatch={() => { closeFrontDoor(); choosePace("brisk"); }}
+          onBack={() => { closeFrontDoor(); startOnClaimRef.current = true; setPickerOpen(true); }}
+          onQuick={(idx) => { closeFrontDoor(); startOnClaimRef.current = true; claimNation(idx); }}
+          onGuide={() => { closeFrontDoor(); setGuideOpen(true); }}
+        />
+      )}
+
+      {/* the tutorial — reopenable via "?" (and from the front door) */}
       {guideOpen && <GuideCard onClose={closeGuide} />}
 
       {/* P1c — how the model works, one click from the transport */}

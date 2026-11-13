@@ -20,6 +20,22 @@ import { Rng } from "./rng";
 import { getScenario, type ScenarioMods } from "./scenarios";
 import { COUNTRY_FAITH, FAITH_SHARE, FAITH_TUNING, FAITHS, FAITH_COUNT, FAITH_IDX } from "./religion";
 
+/* Distance-decay denominators, built once per page load. Distances never
+   change, so `1 + (d / scale)^exp` is a pure function of the pair: the
+   loops below read the same doubles they used to recompute ~60,000 times
+   a year (faith, influence and market gravity were ~55% of a run).
+   Identical arithmetic, identical results — the fingerprint gate in
+   scripts/sim-fingerprint.ts proves the century is byte-for-byte unchanged. */
+function decayTable(scale: number, exp: number): Float64Array {
+  const n = COUNTRIES.length;
+  const t = new Float64Array(n * n);
+  for (let k = 0; k < n * n; k++) t[k] = 1 + Math.pow(DIST[k] / scale, exp);
+  return t;
+}
+const INFL_DEN = decayTable(1700, 1.5);
+const ECON_DEN = decayTable(1400, 1.3);
+const FAITH_DEN = decayTable(FAITH_TUNING.distScaleKm, FAITH_TUNING.distExponent);
+
 export interface Boosts {
   growth: number; // 0..100 slider
   tech: number;
@@ -827,14 +843,13 @@ export function runSimulation(cfg: SimConfig): SimResult {
         let bestE = c, bestEV = effGdp[c];
         for (const p of cand) {
           if (st[p].ctrl !== p) continue;
-          const d = DIST[c * N + p];
           const adjB = blocAdj(p, c) ? 1.7 : 1;
           // an active trade realignment bends this country's gravity toward
           // (or away from) one chosen power — and only that pairing
           const am = st[c].alignTo === p && year < st[c].alignUntil ? st[c].alignMult : 1;
-          const iv = (blocPow[p] * (0.3 + 0.7 * BASELINE[COUNTRIES[c].code].receptivity)) / (1 + Math.pow(d / 1700, 1.5)) * (adjB > 1 ? 1.45 : 1) * am * (1 + st[p].momGrav);
+          const iv = (blocPow[p] * (0.3 + 0.7 * BASELINE[COUNTRIES[c].code].receptivity)) / INFL_DEN[c * N + p] * (adjB > 1 ? 1.45 : 1) * am * (1 + st[p].momGrav);
           if (iv > bestIV) { bestIV = iv; bestI = p; }
-          const ev = effGdp[p] / (1 + Math.pow(d / 1400, 1.3)) * (adjB > 1 ? 1.5 : 1) * am;
+          const ev = effGdp[p] / ECON_DEN[c * N + p] * (adjB > 1 ? 1.5 : 1) * am;
           if (ev > bestEV) { bestEV = ev; bestE = p; }
         }
         infl[c] = bestI; econ[c] = bestE;
@@ -1094,8 +1109,7 @@ export function runSimulation(cfg: SimConfig): SimResult {
             // faith with 51 homelands must not win everywhere by headcount
             let sumSq = 0;
             for (const j of members[f]) {
-              const d = j === c ? 0 : DIST[c * N + j];
-              const v = rad[j] / (1 + Math.pow(d / T.distScaleKm, T.distExponent));
+              const v = rad[j] / (j === c ? 1 : FAITH_DEN[c * N + j]);
               sumSq += v * v;
             }
             const g0 = Math.sqrt(sumSq);

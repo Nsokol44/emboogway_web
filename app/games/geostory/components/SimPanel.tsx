@@ -233,7 +233,7 @@ function InterventionBar({ year, pool, spent, options, selectedIdx, claimIdx, on
       style={{ background: "linear-gradient(160deg, rgba(201,150,58,0.14), rgba(6,20,38,0.7))", borderColor: "rgba(240,192,96,0.65)", boxShadow: "0 10px 30px rgba(0,0,0,0.45), inset 0 1px 0 rgba(240,192,96,0.25)" }}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-display text-sm tracking-[0.18em] max-sm:text-[13px]" style={{ color: GOLD }}>⚑ TURNING POINT — {year}</span>
-        <span className="text-[11px]" style={{ color: PARCH }}>The run keeps turning — act here, or let the moment pass.</span>
+        <span className="text-[11px]" style={{ color: PARCH }}>The clock waits a moment for you — act here, or let it pass.</span>
         <button onClick={onDone} className="ml-auto rounded border px-2.5 py-1 text-[11px] font-semibold tracking-wider hover:opacity-80"
           style={{ borderColor: "rgba(147,167,189,0.45)", color: PARCH }}>LET IT PASS</button>
       </div>
@@ -340,16 +340,16 @@ function NotesList({ notes, pool, spent, options, selectedIdx, claimIdx, onSpend
   if (!notes.length) {
     return (
       <p className="px-1 py-2 text-[11px] leading-relaxed" style={{ color: FAINT }}>
-        Nothing yet. Turning Points and the century&apos;s loudest moments arrive here — the run never
-        pauses for them. Act on a Turning Point while its year is live, or let it pass and the item
-        records that it did.
+        Nothing yet. Turning Points and the century&apos;s loudest moments arrive here. When you back a
+        nation, the clock waits a few seconds at each Turning Point — act on it, or let it pass and the
+        item records that it did. The run never stops for good.
       </p>
     );
   }
   return (
     <ol className="space-y-2">
       {notes.map((n) => n.kind === "turning" && n.status === "open" ? (
-        <li key={n.id}>
+        <li key={n.id} data-tp-open="1">
           <InterventionBar year={n.year} pool={pool} spent={spent} options={options} selectedIdx={selectedIdx} claimIdx={claimIdx}
             onSpend={(inv) => onSpend(n, inv)} onDone={() => onPass(n)} />
         </li>
@@ -469,29 +469,27 @@ export interface IdlerProps {
   holdMajors: boolean;
   onToggleHoldMajors: () => void;
   onHoldRequest: (ms: number) => void;
+  /** lift a hold early — a Turning Point answered (or let pass) frees the clock */
+  onHoldRelease: () => void;
 }
+
+/** How long the clock waits at a fresh Turning Point. The run never stops
+ *  for good: the hold ends on its own, or the moment the player answers. */
+const TP_HOLD_MS = 8000;
 
 type SheetTab = "powers" | "notes" | "dossier" | "chronicle" | "highlights" | "setup" | "export";
 
-const SHEET_TABS: { id: SheetTab; label: string }[] = [
-  { id: "powers", label: "POWERS" },
+/* plain names, in the order a visitor reaches for them; the two
+   tool tabs (changing the what-if, sharing the run) sit apart at the end */
+const SHEET_TABS: { id: SheetTab; label: string; tool?: boolean }[] = [
+  { id: "dossier", label: "COUNTRY" },
   { id: "notes", label: "NOTES" },
-  { id: "dossier", label: "DOSSIER" },
-  { id: "chronicle", label: "CHRONICLE" },
+  { id: "powers", label: "RANKINGS" },
+  { id: "chronicle", label: "HISTORY" },
   { id: "highlights", label: "HIGHLIGHTS" },
-  { id: "setup", label: "SETUP" },
-  { id: "export", label: "EXPORT" },
+  { id: "setup", label: "⚙ WHAT-IFS", tool: true },
+  { id: "export", label: "⇪ SHARE", tool: true },
 ];
-
-/* short strip labels — full names + blurbs ride on the title tooltips */
-const LAYER_SHORT: Record<LayerId, string> = {
-  territory: "TERRITORY",
-  influence: "INFLUENCE",
-  economic: "ECONOMIC",
-  tech: "TECH",
-  terrain: "TERRAIN",
-  religion: "RELIGION",
-};
 
 interface Props {
   cfg: SimConfig;
@@ -637,6 +635,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const notesRef = useRef<NoteItem[]>([]);
   const [unread, setUnread] = useState(0);
   const [railOpen, setRailOpen] = useState(true);
+  const [moreOpen, setMoreOpen] = useState(false); // the "⋯ MORE" drawer in the strip
   const [chimeOn, setChimeOn] = useState(() => { try { return localStorage.getItem("gs-chime") !== "off"; } catch { return true; } });
   const [animationsOn, setAnimationsOn] = useState(() => { try { return localStorage.getItem("gs-animations") !== "off"; } catch { return true; } });
   const setNotesBoth = useCallback((next: NoteItem[]) => { notesRef.current = next; setNotes(next); }, []);
@@ -650,15 +649,22 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
   const markNote = useCallback((id: string, status: NoteItem["status"]) => {
     setNotesBoth(notesRef.current.map((n) => (n.id === id ? { ...n, status } : n)));
   }, [setNotesBoth]);
+  const tpHoldRef = useRef<string | null>(null); // the Turning Point the clock is waiting on
+  const { onHoldRequest: holdFor, onHoldRelease: holdRelease } = idler;
+  const releaseIfHeld = useCallback((note: NoteItem) => {
+    if (note.winKey && note.winKey === tpHoldRef.current) { tpHoldRef.current = null; holdRelease(); }
+  }, [holdRelease]);
   const spendNote = useCallback((note: NoteItem, inv: Intervention) => {
     onCfg({ ...cfg, interventions: [...interventions, inv] });
     if (note.winKey) resolvedRef.current.add(note.winKey);
     markNote(note.id, "spent");
-  }, [cfg, interventions, onCfg, markNote]);
+    releaseIfHeld(note);
+  }, [cfg, interventions, onCfg, markNote, releaseIfHeld]);
   const passNote = useCallback((note: NoteItem) => {
     if (note.winKey) resolvedRef.current.add(note.winKey);
     markNote(note.id, "passed");
-  }, [markNote]);
+    releaseIfHeld(note);
+  }, [markNote, releaseIfHeld]);
   const prevYearRef = useRef(calYear);
   const [banner, setBanner] = useState<{ key: string; text: string } | null>(null);
   const [flowOn, setFlowOn] = useState(false);
@@ -729,8 +735,29 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
       setNotesBoth(notesRef.current.map((n) => (n.kind === "turning" && n.status === "open" ? { ...n, status: "passed" as const } : n)));
       pushNote({ id: `t${key}`, kind: "turning", year: winYear, title: `Turning Point — ${winYear}`, siteIdx: selectedIdx, anchor: false, status: "open", winKey: key, bornAt: Date.now() });
       chime(chimeOn);
+      /* the clock waits a beat so a human can actually act — at Brisk a
+         year lasts half a second. Answering (or passing) frees it early. */
+      if (playing && active && claimIdx !== null) { // only a visitor with a stake is held; "just watch" flows
+        tpHoldRef.current = key;
+        holdFor(TP_HOLD_MS);
+        setRailOpen(true);
+        if (typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
+          setSheetTab("notes");
+          // phones: bring the lever card itself into view, not the top of the inbox
+          // (scroll the sheet's own scroller only — never the page, or the map leaves the screen)
+          window.setTimeout(() => {
+            const el = [...document.querySelectorAll<HTMLElement>("[data-tp-open]")].find((x) => x.offsetParent !== null);
+            let sc = el?.parentElement ?? null;
+            while (sc && !(sc.scrollHeight > sc.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+            if (el && sc && sc !== document.body && sc !== document.documentElement) {
+              sc.scrollTo({ top: sc.scrollTop + el.getBoundingClientRect().top - sc.getBoundingClientRect().top - 8, behavior: "smooth" });
+            }
+          }, 120);
+        }
+        setBanner({ key: `tp${key}`, text: `⏳ Turning Point — the clock waits a moment: spend influence, or let it pass` });
+      }
     }
-  }, [calYear, playing, poolLeft, result, pushNote, setNotesBoth, chimeOn, claimIdx, selectedIdx, yearIdx]);
+  }, [calYear, playing, poolLeft, result, pushNote, setNotesBoth, chimeOn, claimIdx, selectedIdx, yearIdx, active, holdFor]);
 
   /* ── spectacle: when a major event lands during playback, its site gets
      a pulse on the map. In CINEMA the beat also earns a hold (a clean cut
@@ -1147,8 +1174,10 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               style={{ background: "linear-gradient(180deg, rgba(10,28,50,0.90), rgba(4,15,29,0.96))", borderColor: PANEL_BORDER, boxShadow: "0 -18px 44px rgba(0,0,0,0.55), inset 0 1px 0 rgba(240,192,96,0.12)" }}>
               <div className="flex items-center px-2 pt-2 sm:px-3">
                 <div className="flex min-w-0 items-center gap-1 overflow-x-auto" role="tablist" aria-label="Panel sections">
-                {SHEET_TABS.map((t) => (
-                  <button key={t.id} role="tab" aria-selected={sheetTab === t.id}
+                {SHEET_TABS.map((t, i) => (
+                  <span key={t.id} className="contents">
+                  {t.tool && !SHEET_TABS[i - 1]?.tool && <span className="mx-1 h-4 w-px shrink-0" style={{ background: "rgba(201,150,58,0.3)" }} aria-hidden />}
+                  <button role="tab" aria-selected={sheetTab === t.id}
                     onClick={() => { setSheetTab(t.id); if (t.id === "notes") setUnread(0); }}
                     className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 font-display text-[11px] tracking-[0.14em] sm:px-3"
                     style={{
@@ -1158,6 +1187,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                     }}>
                     {t.label}{t.id === "notes" && unread > 0 ? ` (${unread})` : ""}
                   </button>
+                  </span>
                 ))}
                 </div>
                 <button onClick={() => setSheetTab(null)} className="ml-auto shrink-0 rounded-md px-2 py-1.5 text-[13px] leading-none hover:opacity-75" style={{ color: MUTED }} aria-label="Collapse the panel">▾</button>
@@ -1258,7 +1288,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
       {sheetTab === "notes" && (
         <div className="px-4 py-3">
           <p className="mb-2 text-[11px]" style={{ color: MUTED }}>
-            ⚑ INFLUENCE — earned {INFLUENCE_POOL} · spent {spentTotal} · balance {poolLeft}. Turning Points never pause the run: act while their year is live, or they pass and the item says so.
+            ⚑ INFLUENCE — earned {INFLUENCE_POOL} · spent {spentTotal} · balance {poolLeft}. With a nation backed, the clock waits a few seconds at each Turning Point: act, or let it pass and the item says so.
           </p>
           <SphereRiskBlock rows={sphereRisk} onFocus={(idx) => { onSelect(idx); setSheetTab("dossier"); }} />
           <NotesList notes={notes} pool={poolLeft} spent={spentTotal} options={powerOptions} selectedIdx={selectedIdx} claimIdx={claimIdx}
@@ -1734,9 +1764,10 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
             {/* the legend's phone home — in normal flow inside the strip's
                 chrome, so it never covers a country; sm+ keeps the
                 overlay on the plate (see the map stage) */}
-            <div className="sm:hidden">
-              <MapLegend layer={layer} />
-            </div>
+            {/* …and steps aside while a sheet is open, so the sheet (a
+                Turning Point's levers, a dossier) gets the phone's height */}
+            {/* (phones: the legend lives in the ⋯ MORE drawer — the VIEW
+                picker already names the layer, and the map gets the room) */}
             <div className="flex flex-col gap-y-1.5 px-2.5 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-1.5 sm:px-3">
               <div className="flex flex-wrap items-center gap-1.5 sm:contents">
               <button
@@ -1787,7 +1818,7 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 ))}
               </div>
               </div>
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 max-sm:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-30px),transparent)] max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-30px),transparent)] sm:contents sm:overflow-visible sm:pb-0">
+              <div className="flex flex-wrap items-center gap-1.5 pb-0.5 sm:contents sm:pb-0">
               {idler.claimHere ? (
                 <button onClick={() => { onSelect(idler.claimHere!.idx); setSheetTab("dossier"); }}
                   className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5"
@@ -1829,29 +1860,23 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
                 style={{ borderColor: unread > 0 ? "rgba(240,192,96,0.75)" : "rgba(201,150,58,0.4)", color: GOLD, background: unread > 0 ? "rgba(201,150,58,0.16)" : "rgba(201,150,58,0.05)" }}
                 aria-label={unread > 0 ? `Notifications, ${unread} new` : "Notifications"}
-                title="Notifications — Turning Points and major events; the run never pauses for them">
+                title="Notifications — Turning Points and major events; the clock waits briefly at a Turning Point when you've backed a nation">
                 🔔 NOTES{unread > 0 ? ` (${unread})` : ""}
               </button>
-              <button
-                onClick={() => { const v = !chimeOn; setChimeOn(v); try { localStorage.setItem("gs-chime", v ? "on" : "off"); } catch { /* noop */ } }}
-                className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
-                style={{ borderColor: "rgba(201,150,58,0.4)", color: chimeOn ? GOLD : FAINT, background: "rgba(201,150,58,0.05)" }}
-                aria-pressed={chimeOn}
-                aria-label={chimeOn ? "Notification chime on" : "Notification chime off"}
-                title="A short chime when a notification arrives">
-                ♪ {chimeOn ? "ON" : "OFF"}
-              </button>
-              <button
-                onClick={() => { const v = !animationsOn; setAnimationsOn(v); try { localStorage.setItem("gs-animations", v ? "on" : "off"); } catch { /* noop */ } }}
-                className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
-                style={{ borderColor: "rgba(201,150,58,0.4)", color: animationsOn ? GOLD : FAINT, background: "rgba(201,150,58,0.05)" }}
-                aria-pressed={animationsOn}
-                aria-label={animationsOn ? "War animations on" : "War animations off"}
-                title="War spectacle — missile arcs, drones and impact bursts on the map">
-                ANIMATIONS {animationsOn ? "ON" : "OFF"}
-              </button>
+              {/* the one switch that matters while watching: what the map shows */}
+              <label className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1" style={{ borderColor: "rgba(201,150,58,0.35)" }}
+                title={`Map view — ${LAYERS.find((l) => l.id === tp.layer)?.blurb ?? ""} (keys 1–${LAYERS.length})`}>
+                <span className="font-display text-[10px] tracking-[0.18em]" style={{ color: MUTED }}>VIEW</span>
+                <select value={tp.layer} onChange={(e) => tp.onLayer(e.target.value as typeof tp.layer)}
+                  className="bg-transparent text-[11px] tracking-wide outline-none" style={{ color: GOLD }} aria-label="Map view">
+                  {LAYERS.map((l) => (
+                    <option key={l.id} value={l.id} style={{ background: "#06182c", color: "#f7f0e3" }}>{l.name}</option>
+                  ))}
+                </select>
+              </label>
               {challengeChip}
-              {panelSwitcher}
+              {/* comparison sims surface here once there is more than one */}
+              {tp.showDiff !== null && panelSwitcher}
               <button
                 onClick={() => setSheetTab(sheetTab === null ? (sel ? "dossier" : "powers") : null)}
                 className="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-display text-[11px] tracking-wider"
@@ -1861,21 +1886,29 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                   background: sheetTab !== null ? "rgba(201,150,58,0.16)" : "rgba(201,150,58,0.06)",
                 }}
                 aria-expanded={sheetTab !== null}
-                aria-label={sheetTab !== null ? "Collapse the panel" : "Expand the panel — powers, dossier, chronicle, setup, export"}
+                aria-label={sheetTab !== null ? "Collapse the panel" : "Open details — the country dossier, rankings, chronicle, setup and export"}
               >
-                {sheetTab !== null ? "▾ PANELS" : "▴ PANELS"}
+                {sheetTab !== null ? "▾ DETAILS" : "▴ DETAILS"}
               </button>
-              <div className="flex shrink-0 flex-nowrap overflow-x-auto rounded-md border" style={{ borderColor: "rgba(201,150,58,0.35)" }} role="group" aria-label="Map layer">
-                {LAYERS.map((l) => (
-                  <button key={l.id} onClick={() => tp.onLayer(l.id)} className="px-[7px] py-1.5 text-[11px] tracking-wide"
-                    style={{ background: tp.layer === l.id ? "#c9963a" : "transparent", color: tp.layer === l.id ? "#081426" : "#cdbfa5" }}
-                    title={`${l.name} — ${l.blurb}`}
-                    aria-label={`Layer: ${l.name}`}
-                    aria-pressed={tp.layer === l.id}>
-                    {LAYER_SHORT[l.id]}
-                  </button>
-                ))}
-              </div>
+              <button onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}
+                className="flex shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 font-display text-[11px] tracking-wider"
+                style={{ borderColor: moreOpen ? "rgba(240,192,96,0.65)" : "rgba(201,150,58,0.4)", color: moreOpen ? GOLD : "#cbb27a", background: moreOpen ? "rgba(201,150,58,0.12)" : "transparent" }}
+                aria-label={moreOpen ? "Hide extra controls" : "More controls — compare sims, display, cinema, help"}>
+                {moreOpen ? "✕ LESS" : "⋯ MORE"}
+              </button>
+              {/* everything else: display, sound, compare, recording, help —
+                  one tap away, never in the way while the century plays */}
+              {moreOpen && (
+                <div className="flex w-full flex-wrap items-center gap-1.5 border-t pt-1.5" style={{ borderColor: "rgba(201,150,58,0.2)" }} role="group" aria-label="More controls">
+                  <div className="-mx-2.5 w-[calc(100%+20px)] sm:hidden">
+                    <MapLegend layer={layer} />
+                  </div>
+                  {tp.showDiff === null && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="font-display text-[10px] tracking-[0.18em]" style={{ color: MUTED }}>COMPARE</span>
+                      {panelSwitcher}
+                    </span>
+                  )}
               {tp.showDiff !== null && (
                 <button
                   onClick={tp.onToggleDiff}
@@ -1918,6 +1951,24 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
                 ☁ WEATHER
               </button>
               <button
+                onClick={() => { const v = !animationsOn; setAnimationsOn(v); try { localStorage.setItem("gs-animations", v ? "on" : "off"); } catch { /* noop */ } }}
+                className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
+                style={{ borderColor: "rgba(201,150,58,0.4)", color: animationsOn ? GOLD : FAINT, background: "rgba(201,150,58,0.05)" }}
+                aria-pressed={animationsOn}
+                aria-label={animationsOn ? "War animations on" : "War animations off"}
+                title="War spectacle — missile arcs, drones and impact bursts on the map">
+                ANIMATIONS {animationsOn ? "ON" : "OFF"}
+              </button>
+              <button
+                onClick={() => { const v = !chimeOn; setChimeOn(v); try { localStorage.setItem("gs-chime", v ? "on" : "off"); } catch { /* noop */ } }}
+                className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1.5 font-display text-[11px] tracking-wider"
+                style={{ borderColor: "rgba(201,150,58,0.4)", color: chimeOn ? GOLD : FAINT, background: "rgba(201,150,58,0.05)" }}
+                aria-pressed={chimeOn}
+                aria-label={chimeOn ? "Notification chime on" : "Notification chime off"}
+                title="A short chime when a notification arrives">
+                ♪ {chimeOn ? "ON" : "OFF"}
+              </button>
+              <button
                 onClick={idler.onToggleCinema}
                 className="shrink-0 rounded-md border px-2.5 py-1.5 text-[11px] tracking-wider"
                 style={{ borderColor: "rgba(240,192,96,0.55)", color: GOLD, background: "rgba(201,150,58,0.08)" }}
@@ -1943,8 +1994,8 @@ export default function SimPanel({ cfg, onCfg, result, diffResult = null, yearFl
               >
                 ?
               </button>
-              {/* end room so the last button scrolls fully clear of the fade */}
-              <div className="w-7 shrink-0 sm:hidden" aria-hidden />
+                </div>
+              )}
               </div>
             </div>
           </div>

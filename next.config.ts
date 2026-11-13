@@ -8,6 +8,13 @@ const nextConfig: NextConfig = {
   trailingSlash: true,
   skipTrailingSlashRedirect: true, // lets API routes accept POSTs without a trailing slash
   images: { unoptimized: true },
+  // short links people actually type and share
+  async redirects() {
+    return [
+      { source: "/geostory", destination: "/games/geostory/", permanent: true },
+      { source: "/geostory/", destination: "/games/geostory/", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;
